@@ -1,3 +1,4 @@
+import {providerLabel} from '../brand';
 import React, {useEffect, useRef, useState} from 'react';
 import {workbenchApi} from '../api/workbench';
 import {DeferredDetails, JsonDetails} from './DeferredDetails';
@@ -7,7 +8,6 @@ import './SolverReceipt.css';
 const unknown = '未记录';
 const states = {completed:'已完成', partial:'部分结果', needs_input:'需补输入', unsupported:'超出模型范围'};
 const knownHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
-const display = value => value === 'LaserClaw' ? 'BeamWeft' : value;
 
 export function compareReceipts(a,b) {
   if (!knownHash(a?.sha256) || !knownHash(b?.sha256)) return 'unknown';
@@ -19,14 +19,14 @@ export function compareReceipts(a,b) {
 function fields(receipt) {
   if (!receipt) return {};
   const deviceRows = (receipt.devices || []).flatMap(device=>{
-    const name = device.method+' · '+display(device.provider)+' · v'+device.version;
+    const name = device.method+' · '+providerLabel(device.provider)+' · v'+device.version;
     return [
       ['元件模型 · '+name, device.implementation_sha256 || '实现指纹未记录'],
       ['元件接口 · '+name, device.contract_sha256],
     ];
   });
   return {
-    '方法':receipt.method, '提供方':display(receipt.provider), '方法版本':receipt.version,
+    '方法':receipt.method, '提供方':providerLabel(receipt.provider), '方法版本':receipt.version,
     '软件版本':receipt.application?.version,
     '应用源码指纹':receipt.application?.source_sha256, '方法实现指纹':receipt.implementation_sha256,
     '计算接口指纹':receipt.contract_sha256,

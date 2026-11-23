@@ -33,7 +33,7 @@ backend/.venv/Scripts/python.exe backend/scripts/benchmarks/fourier_plane/benchm
 要从 BeamWeft 的实际研究接口复算，可在上述两步后运行下列命令。它会新建隔离工程，通过正式接口上传原件、运行两种设置、下载原生 NPZ 并重新计分。另一次计算直接使用实验室的振幅、波前和驱动计数，逐像元与预先制备的复场、附加相位做交叉核对。以下命令同时生成可打开的工程、完整数值回执与用产品输出绘制的图；只想核对数值时可省略所有输出参数。使用项目后端依赖，画图另需 Matplotlib。
 
 ```powershell
-backend/.venv/Scripts/python.exe backend/scripts/benchmarks/fourier_plane/verify_workbench.py --package Cambridge-focal-plane.lclaw --report product.json --figure camera-comparison.png
+backend/.venv/Scripts/python.exe backend/scripts/benchmarks/fourier_plane/verify_workbench.py --package Cambridge-focal-plane.beamweft --report product.json --figure camera-comparison.png
 ```
 
 工程包含三次焦面预测、两个相机原件的测量、输入与配准的冻结记录。导出后会在单独数据库重新打开工程，从归档输入重算留出设置并核对全网格指纹。两项评分使用冻结的外部评估脚本，配准系数和相机区域均来自设置 0，完整数值回执也保留了直接使用驱动计数和使用已标定弧度数组的差异。

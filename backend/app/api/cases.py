@@ -228,7 +228,7 @@ def export_case_bundle(
 ):
     """Capture one committed case snapshot, including the bytes behind its evidence."""
     bind = db.get_bind()
-    tmp = NamedTemporaryFile(prefix=f"laserclaw-case-{case_id}-", suffix=".zip", delete=False)
+    tmp = NamedTemporaryFile(prefix=f"beamweft-case-{case_id}-", suffix=".zip", delete=False)
     tmp.close()
     try:
         case_title = write_case_snapshot(bind, case_id, principal, tmp.name, revision_id)
@@ -236,7 +236,7 @@ def export_case_bundle(
         title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", case_title).strip(" .")[:100] or "BeamWeft"
         if re.match(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", title, re.I):
             title = "_" + title
-        filename = f"{title}.lclaw" if native else f"beamweft-case-{case_id}-bundle.zip"
+        filename = f"{title}.beamweft" if native else f"beamweft-case-{case_id}-bundle.zip"
         record_audit(db, action="case.file.save" if native else "case.bundle.export", resource_type="case", resource_id=str(case_id))
         db.commit()
         return FileResponse(tmp.name, filename=filename, media_type="application/octet-stream" if native else "application/zip",

@@ -72,10 +72,10 @@ def test_branch_bindings_survive_insertion_save_and_portable_project(client, db,
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         inventory = json.loads(archive.read(HISTORY))["inventory_specs"]
         assert [(item["id"], item["focal_length_mm"]) for item in inventory] == [(stock.id, 35)]
-    package = tmp_path / "beamline.lclaw"
+    package = tmp_path / "beamline.beamweft"
     package.write_bytes(bundle)
     folder, _ = open_package(package, tmp_path / "opened")
-    engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     try:
         with Session(engine) as peer:
             restored = read_project(peer, cid, revision)

@@ -229,7 +229,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="beamweft-fourier-api-") as temp:
         lab = Path(temp)
         os.environ.update(
-            LASERCLAW_NO_DOTENV="1",
+            BEAMWEFT_NO_DOTENV="1",
             DATABASE_URL="sqlite:///" + (lab / "lab.db").as_posix(),
             UPLOAD_DIR=str(lab / "uploads"),
             VECTOR_STORE_DIR=str(lab / "vectors"),
@@ -260,7 +260,7 @@ def main():
             from app.workbench.tools import STUDIES
 
             folder, metadata = open_package(args.package, lab / "reopened")
-            local = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+            local = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
             try:
                 saved = report["settings"]["3"]
                 check = inspect_native_grid(

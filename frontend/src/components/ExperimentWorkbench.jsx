@@ -1,3 +1,4 @@
+import {productName} from '../brand';
 import { PredictionResult } from './PredictionComparison';
 import {PredictionCheckResult} from './PredictionReadingCheck';
 import {InputDifferences} from './ModelInputComparison';
@@ -138,7 +139,7 @@ function numericalView(call,caseId,onUseFit,onAsk) {
   if (call.name === 'read_beam_studies' && call.output?.result?.predictions) return <PredictedWidths result={call.output.result}/>;
   if (call.name === 'read_beam_studies' && (call.output?.result?.fit || call.output?.result?.check || call.output?.result?.repeatability)) return <StudyResult item={call.output.result} caseId={caseId} onUseFit={onUseFit}/>;
   if (call.name === 'analyze_observation_planes' && Array.isArray(call.output?.planes))
-    return <ScientificStudyOutput definition={{name:call.name,provider:'LaserClaw',version:'1'}} output={call.output}/>;
+    return <ScientificStudyOutput definition={{name:call.name,provider:productName,version:'1'}} output={call.output}/>;
   const project = projectResult(call);
   const output=project || call.output;
   if (output?.analysis?.planes || output?.analysis?.trace || output?.maps || output?.planes ||

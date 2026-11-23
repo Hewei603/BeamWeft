@@ -34,7 +34,7 @@ async def main(output):
     if type(provider).__name__ == "MockProvider":
         raise RuntimeError("Live evaluation requires a configured real provider")
     reports = []
-    with tempfile.TemporaryDirectory(prefix="laserclaw-workbench-live-") as directory:
+    with tempfile.TemporaryDirectory(prefix="beamweft-workbench-live-") as directory:
         engine = create_engine(f"sqlite:///{Path(directory) / 'eval.db'}", connect_args={"check_same_thread": False})
         Base.metadata.create_all(engine)
         service.SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)

@@ -14,6 +14,7 @@ from pydantic import Field, field_validator, model_validator
 
 from ..physics.scalar_field import GaussianAxis
 from ..study_api import Port, StrictInput
+from ..version import provider_display_name
 from .optics import ClearAperture, QuadraticSurface, UniformSection
 
 
@@ -108,7 +109,7 @@ class FresnelElement(StrictInput):
         law = None
         if element.prescription is not None and law_scope is not None:
             prescription = element.prescription
-            law = ResolvedLaw(study=prescription.study, provider=prescription.provider,
+            law = ResolvedLaw(study=prescription.study, provider=provider_display_name(prescription.provider),
                               version=prescription.version, scope=law_scope)
         return cls(name=element.name, uid=element.uid, length_mm=length, clear_aperture=element.clear_aperture,
                    sections=frozen, law=law)

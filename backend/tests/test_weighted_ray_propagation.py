@@ -220,7 +220,7 @@ def test_production_api_preview_and_save_bind_same_storage_and_clip_just_the_sel
     saved = response.json()
     assert saved["analysis"]["input_issues"]
     port = "layout-prefix-v1/cam/primary/layout"
-    base = {"version": "1", "provider": "LaserClaw", "inputs": {"input_bundle": ray}}
+    base = {"version": "1", "provider": "BeamWeft", "inputs": {"input_bundle": ray}}
     pr = client.post(
         root + "/studies/preview/propagate_ray_bundle?prefix_plane_uid=cam&prefix_path_uid=primary",
         json={**base, "inputs": {**base["inputs"], "layout": project}},
@@ -266,7 +266,7 @@ def test_archived_flux_table_connects_both_joint_samples_and_original_absolute_p
         "weighting": "radiant_power",
         "power_w": [0.15, 0.55],
     }
-    base = {"version": "1", "provider": "LaserClaw"}
+    base = {"version": "1", "provider": "BeamWeft"}
     issued = client.post(root + "/run/assemble_ray_bundle", json={**base, "inputs": table})
     assert issued.status_code == 200, issued.text
     run = issued.json()["study_record"]["id"]

@@ -1,3 +1,4 @@
+import {inputWidget} from '../brand.js';
 import React, {useId, useState} from 'react';
 import {choiceLabel, newInputRecord, objectInputValue} from './studyObjectSchema';
 import OriginalFileInput from './OriginalFileInput';
@@ -17,7 +18,7 @@ function RecordField({name, field, value, files, onChange}) {
   }
   return <div className="study-object-cell">
     <label htmlFor={id}>{title}{!required && <span aria-hidden="true">（可选）</span>}</label>
-    {field['x-laserclaw-input']==='original-file' ? <OriginalFileInput id={id} aria-label={title} required={required}
+    {inputWidget(field)==='original-file' ? <OriginalFileInput id={id} aria-label={title} required={required}
       reference={value} files={files} onSelect={onChange}/> : choices ? <select id={id} aria-label={title} value={value == null ? '' : JSON.stringify(value)} required={required} onChange={read}>
       <option value="">{placeholder || (required?'请选择':'未指定')}</option>{choices.map(choice=>
         <option key={JSON.stringify(choice)} value={JSON.stringify(choice)}>{choiceLabel(field,choice)}</option>)}

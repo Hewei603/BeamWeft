@@ -106,7 +106,7 @@ def test_port_module_is_portable_but_its_excitation_and_external_wiring_are_case
     file = tmp_path / "bench.zip"
     file.write_bytes(bundle.content)
     folder, _ = open_package(file, tmp_path / "received")
-    engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     try:
         with Session(engine) as peer:
             owner = Principal(actor="anonymous", role="user")

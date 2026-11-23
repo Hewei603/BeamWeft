@@ -18,6 +18,32 @@ class PolarizerInputs(StrictInput):
     axis_deg: float
 
 
+def test_earlier_extension_marker_and_condition_identity_are_read_without_rewriting_measurements():
+    from app.study_api import PublishedPort
+    from app.study_compat import MODEL_REVISION, study_input_schema
+
+    class Sensor(StrictInput):
+        station: str = Field(json_schema_extra={"x-laserclaw-input": "plane-uid"})
+        manufacturer: dict = Field(default_factory=dict,
+                                   examples=[{"x-laserclaw-input": "catalogued manufacturer text"}])
+
+    schema = study_input_schema(Sensor)["properties"]
+    assert schema["station"]["x-beamweft-input"] == "plane-uid" and "x-laserclaw-input" not in schema["station"]
+    assert schema["manufacturer"]["examples"] == [{"x-laserclaw-input": "catalogued manufacturer text"}]
+    assert Sensor.model_json_schema()["properties"]["station"]["x-laserclaw-input"] == "plane-uid"
+    condition = "laserclaw.project-revision"
+    saved = {"quantity":"optics.power", "label":"Measured power", "unit":"W", "scale":1,
+             "conditions": {condition: {"path":"revision","label":"project","value_type":"text"}},
+             "condition_values": {condition:"#15"}, "comparison_conditions": [condition]}
+    port = PublishedPort.model_validate(saved)
+    assert port.comparison_conditions == (MODEL_REVISION,)
+    assert port.condition_values == {MODEL_REVISION:"#15"}
+    port.check_conditions(port.condition_values, {"revision":"#15"})
+    assert saved["condition_values"] == {condition:"#15"}
+    with pytest.raises(ValueError, match="不一致"):
+        PublishedPort.model_validate({**saved, "condition_values": {condition:"#15", MODEL_REVISION:"#20"}})
+
+
 def test_live_studies_receive_schematic_positions_unless_the_method_declares_independence():
     from dataclasses import replace
     from app.workbench.spatial_ports import SPATIAL_PORT_STUDY
@@ -74,7 +100,7 @@ def test_same_advertised_method_version_checks_the_installed_calculation_and_kee
     root = f"/api/cases/{case_id}/studies"
     original = Study("test_transmission", "Transfer", "1", "Synthetic transfer.", PolarizerInputs,
                      lambda p: {"output_w":2 * p.input_w})
-    provider = "LaserClaw"
+    provider = "BeamWeft"
     inputs = {"input_w":3., "axis_deg":0.}
 
     def install(study):
@@ -225,7 +251,7 @@ def test_plugin_collision_and_load_failure_keep_builtin_names():
     plugins = [SimpleNamespace(name=name,load=broken) for name in
                ("fit_power_curve","finish","duplicate","duplicate","unavailable")]
     catalog, issues = discover_studies(reserved={"finish"},plugins=plugins)
-    assert catalog["fit_power_curve"][1]=="LaserClaw"
+    assert catalog["fit_power_curve"][1]=="BeamWeft"
     assert "duplicate" not in catalog and "unavailable" not in catalog and "finish" not in catalog
     assert {i["name"] for i in issues}=={p.name for p in plugins}
 
@@ -269,7 +295,7 @@ def test_installed_extension_groups_share_identical_exports_and_reject_conflicts
     assert all(catalog[name][1] == "bw-fixture-a 1.0" for name in loaded)
     assert {issue["name"] for issue in issues if issue["name"].startswith("bw_")} == {"bw_contested", "bw_mismatched"}
     assert not {"bw_contested", "bw_mismatched"} & catalog.keys()
-    assert catalog["fit_power_curve"][1] == "LaserClaw"
+    assert catalog["fit_power_curve"][1] == "BeamWeft"
 
 
 def test_case_history_remains_addressable_beyond_agent_context_window(client, db):
@@ -292,7 +318,7 @@ def test_selected_study_exposes_paged_exact_output_keys_to_agent(client, db):
     case = db.get(ExperimentCase, client.post("/api/cases", json={"title":"跨方法引用"}).json()["id"])
     ports = {f"rows.{i}.reading": {"label": str(i)} for i in range(31)}
     study = GeneratedContent(case_id=case.id, content_type="scientific_study",
-                             content={"definition":{"name":"analyzer","title":"分析结果","version":"2","provider":"LaserClaw"},
+                             content={"definition":{"name":"analyzer","title":"分析结果","version":"2","provider":"BeamWeft"},
                                       "available_outputs":ports, "output":{"raw":[3,4,5]}})
     db.add(study)
     db.commit()

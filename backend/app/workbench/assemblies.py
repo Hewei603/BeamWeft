@@ -1,11 +1,11 @@
 """Physical objects on ordered paths. Membership is independent of optical primitive and stock number."""
 from itertools import groupby
 from typing import Literal
-from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import Field
 
 from ..study_api import StrictInput
+from ..study_compat import persistent_optic_uid
 
 
 class Part(StrictInput):
@@ -55,7 +55,7 @@ def legacy_assemblies(project):
     def add(ids, name, basis="declared"):
         if not ids or claimed.intersection(ids):
             return
-        key = str(uuid5(NAMESPACE_URL, "laserclaw:assembly:" + ids[0]))
+        key = persistent_optic_uid("assembly", ids[0])
         groups.append({"uid": key, "name": name or "晶体", "path_uid": "primary", "element_uids": ids, "basis": basis})
         claimed.update(ids)
 

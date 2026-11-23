@@ -11,6 +11,7 @@ from sqlalchemy import func
 
 from .attachment_files import bundle_paths, transfer
 from .native_document import MARKER
+from .storage_paths import PACKAGE_FORMAT as FORMAT
 from .models import (
     AgentChatMessage, AgentChatSession, AgentStep, AgentTask, AgentToolCall, Attachment,
     CaseComponentItem, CaseModule, CaseModuleFile, CoatingSpec, ComponentModelRevision, ExperimentCase,
@@ -46,7 +47,6 @@ FIELDS = {
 }
 HISTORY = "workbench-history.json"
 VIEW = "workbench-view.json"
-FORMAT = "laserclaw-case"
 METADATA_LIMIT = 128 * 1024**2
 TOTAL_LIMIT = 8 * 1024**3
 

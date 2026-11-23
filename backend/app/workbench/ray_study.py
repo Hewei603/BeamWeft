@@ -45,10 +45,10 @@ class TraceRays(StrictInput):
         min_length=1,
         max_length=100,
         title="光路标识",
-        json_schema_extra={"x-laserclaw-input": "path-uid"},
+        json_schema_extra={"x-beamweft-input": "path-uid"},
     )
     plane_uid: Annotated[str, Field(min_length=1, max_length=100)] | None = Field(
-        default=None, title="观察面标识", json_schema_extra={"x-laserclaw-input": "plane-uid"}
+        default=None, title="观察面标识", json_schema_extra={"x-beamweft-input": "plane-uid"}
     )
     window_mm: float = Field(default=4, gt=0, le=1e5, title="探测视场全宽 / mm")
     samples: int = Field(default=32, ge=1, le=256, title="探测器每边分箱数")

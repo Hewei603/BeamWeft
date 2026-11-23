@@ -55,7 +55,7 @@ def solver_input(model, target, owner, issues):
 
 
 def layout_receipt(layout):
-    return solver_receipt("evaluate_optical_layout", "LaserClaw", "1", compute=_analyze_editable, inputs=layout)
+    return solver_receipt("evaluate_optical_layout", "BeamWeft", "1", compute=_analyze_editable, inputs=layout)
 
 
 def analyze_editable(layout, *, samples_per_segment=None, include_sections=False):

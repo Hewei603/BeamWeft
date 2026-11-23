@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {File} from 'node:buffer';
 import test from 'node:test';
 import {ArchiveTransfers} from '../src/components/archiveTransfers.js';
-import {draftStorageKey} from '../src/components/projectDraft.js';
+import {draftStorageKey,previousDraftKey} from '../src/components/projectDraft.js';
 
 class MemoryStorage {
   data = new Map();
@@ -14,6 +14,19 @@ class MemoryStorage {
 }
 const scope = (id,account) => draftStorageKey('https://example.test', id, account, 'uploads');
 const failed = async () => { throw Error('offline'); };
+
+test('unconfirmed uploads survive an upgrade without mixing project or user scopes',()=>{
+  const storage=new MemoryStorage(), prefix=scope(1,'alice');
+  const entry={key:'attempt',name:'S1.csv',label:'run/S1.csv',size:3,message:'offline'};
+  storage.setItem(previousDraftKey(prefix)+'/attempt', JSON.stringify(entry));
+  storage.setItem(previousDraftKey(scope(2,'alice'))+'/attempt', JSON.stringify({...entry,label:'other'}));
+  const recovered=new ArchiveTransfers(prefix,storage);
+  assert.deepEqual(recovered.getSnapshot().missing.map(row=>row.label),['run/S1.csv']);
+  assert.equal(storage.getItem(previousDraftKey(prefix)+'/attempt'),undefined);
+  recovered.discard('attempt');
+  assert.equal(new ArchiveTransfers(prefix,storage).getSnapshot().missing.length,0);
+  assert.equal(new ArchiveTransfers(scope(2,'alice'),storage).getSnapshot().missing[0].label,'other');
+});
 
 test('unconfirmed receipts survive reload only in their project and principal scope', async () => {
   const storage = new MemoryStorage(), key = scope(3,'A');

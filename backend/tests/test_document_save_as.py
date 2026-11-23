@@ -6,9 +6,9 @@ from app.document_destinations import DocumentDestinations
 
 
 def test_save_as_respects_the_selected_destination_and_foreign_changes(tmp_path, monkeypatch):
-    source = tmp_path / "source.lclaw"
+    source = tmp_path / "source.beamweft"
     source.write_bytes(b"original")
-    target = tmp_path / "other.lclaw"
+    target = tmp_path / "other.beamweft"
     choices = iter(["", str(target), str(target), str(target), str(target)])
     monkeypatch.setattr("app.document_destinations.subprocess.run",
                         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=next(choices) + "\n"))
@@ -19,7 +19,7 @@ def test_save_as_respects_the_selected_destination_and_foreign_changes(tmp_path,
     destination = locations.take(selection)
     with pytest.raises(ValueError, match="已失效"):
         locations.take(selection)
-    assert destination.write(lambda stage: stage.write_bytes(b"copy"))["filename"] == "other.lclaw"
+    assert destination.write(lambda stage: stage.write_bytes(b"copy"))["filename"] == "other.beamweft"
     assert target.read_bytes() == b"copy"
 
     selected = locations.take(locations.choose(source))
@@ -31,7 +31,7 @@ def test_save_as_respects_the_selected_destination_and_foreign_changes(tmp_path,
         selected.write(external_save_while_packaging)
     assert target.read_bytes() == b"collaborator"
     assert source.read_bytes() == b"original"
-    assert list(tmp_path.glob(".laserclaw-*")) == []
+    assert list(tmp_path.glob(".beamweft-*")) == []
 
     selected = locations.take(locations.choose(source))
     selected.write(lambda stage: stage.write_bytes(b"confirmed replacement"))

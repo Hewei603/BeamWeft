@@ -1,6 +1,6 @@
 # Synthetic Troubleshooting Case Notes
 
-This synthetic document is for LaserClaw benchmark and resume metrics only.
+This synthetic document is for BeamWeft benchmark and resume metrics only.
 
 ## CASE-LOW-POWER
 

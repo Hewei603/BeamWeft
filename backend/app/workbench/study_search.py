@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from ..models import AgentTask, GeneratedContent
 from ..solver_receipt import solver_cache_key
+from ..study_compat import port_conditions
+from ..version import provider_display_name
 from ..study_api import PublishedPort, StrictInput
 from .authoring import layout_receipt
 from .project_outputs import LAYOUT, FrozenProjectOutputs, published_project_outputs
@@ -313,8 +315,8 @@ def search_measures(base):
 def _value(base, current, path, registry):
     if path in base.get("available_outputs", {}):
         key, _ = _rebind_port(base, current, path, registry)
-        offer = current["available_outputs"][key]
-        original = base["available_outputs"][path]
+        offer = port_conditions(current["available_outputs"][key])
+        original = port_conditions(base["available_outputs"][path])
         if offer["shape"] != "scalar":
             raise ValueError("候选输出的表示不再是标量。")
         for condition in dict.fromkeys((*original.get("comparison_conditions", ()), *offer.get("comparison_conditions", ()))):
@@ -431,7 +433,7 @@ def grid_evaluator(db, case_id, args, registry, task_id=None, *, on_run=None):
     base = stored.content
     definition = base["definition"]
     entry = registry.get(definition["name"])
-    if not entry or (entry[0].version,entry[1]) != (definition["version"],definition["provider"]):
+    if not entry or (entry[0].version,entry[1]) != (definition["version"],provider_display_name(definition["provider"])):
         raise ValueError("需要安装基线计算所用的同一求解器版本。")
     study, provider = entry
     metrics = search_measures(base)
@@ -561,7 +563,7 @@ def _missing_frozen_identity(base, current, path):
     table, _, column, declaration = address
     previous, following = base["definition"], current["definition"]
     other = following.get("row_outputs", {}).get(table, {})
-    return ((previous["name"], previous["provider"]) == (following["name"], following["provider"])
+    return ((previous["name"], provider_display_name(previous["provider"])) == (following["name"], provider_display_name(following["provider"]))
             and column in other.get("columns", {}) and (not declaration.get("identity_fields") or not other.get("identity_fields")))
 
 

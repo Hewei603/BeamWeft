@@ -80,7 +80,7 @@ def compile_scattering(components, wavelength_nm):
             transfer = component.model.transfer(wavelength_nm)
             block = _complex_matrix(transfer["matrix"])
             evaluated.append({"component": component.uid, "wavelength_nm": wavelength_nm,
-                              "prescription": component.model.prescription.model_dump(), **transfer})
+                              "prescription": component.model.prescription.installed_prescription(), **transfer})
         else:
             block = scattering_matrix(component.model, wavelength_nm)
         scattering[np.ix_(rows, rows)] = block

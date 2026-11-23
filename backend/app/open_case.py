@@ -15,6 +15,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 
 from .attachment_files import transfer
+from .storage_paths import PREVIOUS_FORMAT, database_path
 from .case_package import FIELDS, FORMAT, HISTORY, METADATA_LIMIT, TOTAL_LIMIT, VIEW, PackageError, fields
 from .database import Base
 from .native_document import MARKER, document_workspace
@@ -176,7 +177,7 @@ def _restore(archive, stage, final, digest):
     history = {}
     if not legacy:
         fmt = manifest["package_format"]
-        if fmt.get("name") != FORMAT or fmt.get("version") != 1:
+        if fmt.get("name") not in (FORMAT, PREVIOUS_FORMAT) or fmt.get("version") != 1:
             raise PackageError("当前软件不支持该案例包版本。请更新 BeamWeft 后重新打开。")
         if not re.fullmatch(r"[a-f0-9]{64}", manifest.get("history_sha256") or ""):
             raise PackageError("案例包缺少工作台历史的校验指纹。")
@@ -193,7 +194,7 @@ def _restore(archive, stage, final, digest):
         copied = table.to_metadata(schema)
         if table.name in portable_tables:
             copied.dialect_options["sqlite"]["autoincrement"] = True
-    engine = create_engine(URL.create("sqlite", database=str(stage / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(database_path(stage))))
     try:
         with engine.begin() as conn:
             conn.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -219,7 +220,7 @@ def _restore(archive, stage, final, digest):
 def _existing(directory, digest):
     try:
         marker = json.loads((directory / MARKER).read_text(encoding="utf-8"))
-        if marker["sha256"] == digest and (directory / "laserclaw.db").is_file():
+        if marker["sha256"] == digest and database_path(directory).is_file():
             _id(marker["case_id"])
             return marker
     except (OSError, KeyError, ValueError, TypeError):

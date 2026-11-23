@@ -49,7 +49,11 @@ def _chroma_collection():
         raise RuntimeError("RETRIEVAL_BACKEND=chroma requires chromadb. Install backend requirements first.") from exc
 
     client = chromadb.PersistentClient(path=settings.vector_store_dir)
-    return client.get_or_create_collection(name="laserclaw_knowledge")
+    current, previous = "beamweft_knowledge", "laserclaw_knowledge"
+    names = {item if isinstance(item, str) else item.name for item in client.list_collections()}
+    if previous in names and current not in names:
+        return client.get_collection(name=previous)
+    return client.get_or_create_collection(name=current)
 
 
 def _index_chroma_chunks(source: KnowledgeSource) -> None:

@@ -1,4 +1,5 @@
-import {bufferDraft, clearDraft, draftStorageKey, flushDraft, readDraft} from './projectDraft.js';
+import {bufferDraft, clearDraft, draftStorageKey, flushDraft, previousDraftKey, readDraft} from './projectDraft.js';
+import {isBuiltInProvider, previousBuiltInProvider, productName} from '../brand.js';
 import {sourceKey} from './studyConnections.js';
 
 const changes=new EventTarget();
@@ -36,13 +37,17 @@ export class StudyDraftShelf {
     this.onWarning=onWarning;
   }
 
-  key(slot) { return JSON.stringify(slot); }
+  key(slot, builtInName=productName) {
+    if (!isBuiltInProvider(slot?.method?.provider)) return JSON.stringify(slot);
+    return JSON.stringify({...slot, method:{...slot.method, provider:builtInName}});
+  }
   storageKey(key) { return this.prefix+':'+key; }
+  previousKey(slot) { return previousDraftKey(this.storageKey(this.key(slot, previousBuiltInProvider))); }
 
   read(slot) {
     const key=this.key(slot);
     if (!this.prefix) return this.pending.get(key)?.value ?? null;
-    try { return readDraft(this.storageKey(key)); }
+    try { return readDraft(this.storageKey(key), this.previousKey(slot)); }
     catch { return null; }
   }
 
@@ -101,7 +106,7 @@ export class StudyDraftShelf {
     clearTimeout(this.pending.get(key)?.timer);
     this.pending.delete(key);
     if (this.prefix) {
-      try { clearDraft(this.storageKey(key)); }
+      try { clearDraft(this.storageKey(key), this.previousKey(slot)); }
       catch { this.onWarning(); }
     }
     this.updateEntries(this.list().filter(entry=>this.key(entry.slot)!==key));

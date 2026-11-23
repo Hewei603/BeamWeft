@@ -8,10 +8,10 @@ else — including nothing at all, which is what pre-2.1 backends report.
 ``tests/test_version_handshake.py`` asserts the two files agree.
 """
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.9.1"
 APP_NAME = "BeamWeft"
 
 
 def provider_display_name(provider):
-    """The stable built-in solver provider ID predates the product name."""
+    """Canonical built-in solver identity. External distributions keep their exact identifiers."""
     return APP_NAME if provider == "LaserClaw" else provider

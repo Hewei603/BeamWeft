@@ -102,7 +102,7 @@ def test_cavity_phrases_route_to_cavity_design(phrase):
     assert route_sync(phrase).selected_tool == TOOL_CAVITY_DESIGN
 
 
-# --- design search: the user gives almost nothing, LaserClaw finds a geometry ---
+# --- design search: the user gives almost nothing, BeamWeft finds a geometry ---
 
 def test_design_search_when_user_gives_no_mirrors():
     """The common real case: a wavelength and a crystal, no mirrors chosen yet."""
@@ -219,7 +219,7 @@ def test_plan_prompt_receives_computed_geometry(client, captured_plan_input):
 def test_plan_prompt_receives_searched_geometry_when_user_gives_no_mirrors(
     client, captured_plan_input
 ):
-    """The real case: only a wavelength and a crystal. LaserClaw must design it."""
+    """The real case: only a wavelength and a crystal. BeamWeft must design it."""
     case_id = _make_case(client, {
         "wavelength_nm": 1064,
         "crystal": {"n": 1.8147, "thickness_mm": 10, "position_mm": 20},

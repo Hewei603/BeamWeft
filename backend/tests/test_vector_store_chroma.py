@@ -46,11 +46,18 @@ def test_pgvector_dimension_mismatch_is_explicit(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_chroma_backend_retrieves_dense_embeddings(client, db, monkeypatch, tmp_path):
+@pytest.mark.parametrize("existing", [False, True])
+def test_chroma_backend_retrieves_dense_embeddings(client, db, monkeypatch, tmp_path, existing):
+    import chromadb
+
     monkeypatch.setenv("RETRIEVAL_BACKEND", "chroma")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence_transformers")
     monkeypatch.setenv("VECTOR_STORE_DIR", str(tmp_path / "chroma_dense"))
     get_settings.cache_clear()
+    store = chromadb.PersistentClient(path=str(tmp_path / "chroma_dense"))
+    previous_name = "laserclaw_knowledge"
+    if existing:
+        store.create_collection(name=previous_name)
     monkeypatch.setattr("app.knowledge.ingestion.embed_text", _fake_dense_embedding)
     monkeypatch.setattr("app.knowledge.retrieval.embed_text", _fake_dense_embedding)
 
@@ -64,4 +71,8 @@ def test_chroma_backend_retrieves_dense_embeddings(client, db, monkeypatch, tmp_
     assert results
     assert results[0].title == "alignment-sop.txt"
     assert run.max_score is not None
+    collections = store.list_collections()
+    assert [item if isinstance(item, str) else item.name for item in collections] == [
+        previous_name if existing else "beamweft_knowledge"
+    ]
     get_settings.cache_clear()

@@ -6,8 +6,8 @@ from pathlib import Path
 
 # Ignore any developer .env so the suite never picks up real API keys
 # or a different provider. Must be set before app.config is imported.
-os.environ["LASERCLAW_NO_DOTENV"] = "1"
-_settings_directory = tempfile.TemporaryDirectory(prefix="laserclaw-test-settings-")
+os.environ["BEAMWEFT_NO_DOTENV"] = "1"
+_settings_directory = tempfile.TemporaryDirectory(prefix="beamweft-test-settings-")
 os.environ["AGENT_SETTINGS_FILE"] = os.path.join(_settings_directory.name, "initial.json")
 
 import pytest

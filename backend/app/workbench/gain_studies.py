@@ -42,13 +42,13 @@ class SpatialOverlap(StrictInput):
     layout: OpticalLayout = Field(title="工程光路模型")
     signal_uid: str = Field(default="primary", min_length=1, max_length=100, title="信号光路标识",
         description="primary 表示主路单程光束或正向腔基模，也可填写已定义的另一支路标识。",
-        json_schema_extra={"x-laserclaw-input":"path-uid"})
+        json_schema_extra={"x-beamweft-input":"path-uid"})
     pump_bundle: RayBundle | None = Field(default=None, exclude_if=lambda v: v is None,
         title="泵浦发射面上的加权光线",
         description="可引用按功率采样的非相干光线。位置与折射率乘斜率均取所选泵浦支路发射面的工程 T/S 坐标，包含实际偏移和指向。留空使用工程内的高斯分布。")
     pump_uid: str | None = Field(default=None, min_length=1, max_length=100, exclude_if=lambda v: v is None,
         title="泵浦光路标识", description="有光线输入时指定其发射光路。使用工程高斯分布时留空可比较各入射光路。",
-        json_schema_extra={"x-laserclaw-input":"path-uid"})
+        json_schema_extra={"x-beamweft-input":"path-uid"})
 
     @model_validator(mode="after")
     def distinct_paths(self):

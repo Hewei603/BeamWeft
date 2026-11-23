@@ -19,6 +19,7 @@ from threading import Lock
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backend"))
+from app.storage_paths import PREVIOUS_PROJECT_SUFFIX, PROJECT_SUFFIX, database_path, library_data_root
 
 
 def document_route(origin, marker):
@@ -41,9 +42,9 @@ def serve(folder, marker, port, show_browser, document=None, assets=None):
     if document:
         path = document.path
         label = str(Path(path.parent.name or path.parent.anchor) / path.name)
-        native = (f'<meta name="laserclaw-native-file" content="{marker["case_id"]}" '
-                  f'data-label="{escape(label)}" data-path="{escape(str(path))}">')
-    ui = DesktopFrontend(dist, f'<meta name="laserclaw-case-copy" content="{legacy}">{native}')
+        native = (f'<meta name="beamweft-native-file" content="{marker["case_id"]}" '
+                  f'data-save-as="{str(path.suffix.lower() != PROJECT_SUFFIX).lower()}" data-label="{escape(label)}" data-path="{escape(str(path))}">')
+    ui = DesktopFrontend(dist, f'<meta name="beamweft-case-copy" content="{legacy}">{native}')
     app.state.opened_case = marker
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", port))
@@ -110,7 +111,7 @@ def serve(folder, marker, port, show_browser, document=None, assets=None):
             if request.headers.get("origin") not in (None, origin):
                 return PlainTextResponse("Open this case in its local workbench window.", status_code=403)
             path = request.url.path
-            if path == "/.well-known/laserclaw-case":
+            if path == "/.well-known/beamweft-case":
                 return JSONResponse({"sha256": app.state.opened_case["sha256"]})
             if request.method in {"GET", "HEAD"} and not (
                 path == "/api" or path.startswith(("/api/", "/docs", "/openapi.json", "/redoc")) or path == "/health"
@@ -143,7 +144,7 @@ def open_window(folder, marker, port, show_browser, document=None, assets=None):
                     active_port = int((folder / "desktop-port").read_text(encoding="ascii"))
                     origin = f"http://127.0.0.1:{active_port}"
                     with closing(HTTPConnection("127.0.0.1", active_port, timeout=0.3)) as client:
-                        client.request("GET", "/.well-known/laserclaw-case")
+                        client.request("GET", "/.well-known/beamweft-case")
                         reply = client.getresponse()
                         if reply.status == 200 and json.loads(reply.read(200)).get("sha256") == marker["sha256"]:
                             route = document_route(origin, marker)
@@ -161,7 +162,7 @@ def open_window(folder, marker, port, show_browser, document=None, assets=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", nargs="?")
-    data_root = Path(os.environ.get("LASERCLAW_DATA_DIR") or Path.home() / "LaserClaw-Data")
+    data_root = library_data_root()
     parser.add_argument("--root", type=Path, default=data_root / "opened-cases")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
@@ -175,19 +176,20 @@ def main():
         window.withdraw()
         try:
             archive = filedialog.askopenfilename(title="打开工程文件", filetypes=[
-                ("BeamWeft", "*.lclaw *.zip"), ("BeamWeft 工程", "*.lclaw"), ("旧版工程包", "*.zip")])
+                ("所有可用工程", f"*{PROJECT_SUFFIX} *{PREVIOUS_PROJECT_SUFFIX} *.zip"),
+                ("BeamWeft 工程", f"*{PROJECT_SUFFIX}"), ("历史工程包", f"*{PREVIOUS_PROJECT_SUFFIX} *.zip")])
         finally:
             window.destroy()
         if not archive:
             return
     from app.desktop_ui import desktop_assets
     assets = desktop_assets(data_root) if args.build_frontend and not args.extract_only else None
-    os.environ["LASERCLAW_DESKTOP_UI"] = "1"
+    os.environ["BEAMWEFT_DESKTOP_UI"] = "1"
     os.environ.pop("BEAMWEFT_LIBRARY_INSTANCE", None)
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     from app.native_document import NativeDocument, document_workspace
-    document = NativeDocument(archive, root) if Path(archive).suffix.lower() == ".lclaw" else None
+    document = NativeDocument(archive, root) if Path(archive).suffix.lower() in (PROJECT_SUFFIX, PREVIOUS_PROJECT_SUFFIX) else None
     with (document.locked() if document else nullcontext()) as registry, Path(archive).open("rb") as source:
         digest = hashlib.file_digest(source, "sha256").hexdigest()
         if document:
@@ -197,7 +199,7 @@ def main():
             folder, recovered_from = document_workspace(root / digest, digest)
         # Set storage paths before any ORM import creates the application's engine.
         os.environ.setdefault("AGENT_SETTINGS_FILE", str(data_root.resolve() / "uploads" / ".agent-settings.json"))
-        os.environ.update(DATABASE_URL="sqlite:///" + (folder / "laserclaw.db").as_posix(),
+        os.environ.update(DATABASE_URL="sqlite:///" + database_path(folder).as_posix(),
                           UPLOAD_DIR=str(folder / "uploads"), VECTOR_STORE_DIR=str(folder / "vectors"),
                           MIGRATE_LEGACY_ON_START="false", AUTO_CREATE_TABLES="true", REQUIRE_AUTH="false",
                           RETRIEVAL_BACKEND="sql_json", CORS_ORIGINS="[]")

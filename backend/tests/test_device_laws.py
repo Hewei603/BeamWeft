@@ -77,10 +77,16 @@ def test_missing_provider_is_local_to_its_incident_path(relay, monkeypatch):
 
 def test_unavailable_builtin_displays_product_name_and_preserves_saved_provider():
     saved = device_catalog()[0]["aligned_lens_power"]["prescription"]
-    recipe = Prescription(**{**saved, "version": "missing"})
+    assert saved["provider"] == "BeamWeft"
+    original = {**saved, "provider": "LaserClaw"}
+    archived = Prescription(**original)
+    assert archived.definition("ray_matrix") is Prescription(**saved).definition("ray_matrix")
+    assert archived.installed_prescription() == saved
+    assert archived.model_dump() == original
+    recipe = Prescription(**{**original, "version": "missing"})
     with pytest.raises(ValueError, match="BeamWeft 中的 aligned_lens_power vmissing"):
         recipe.definition("ray_matrix")
-    assert recipe.model_dump()["provider"] == saved["provider"] == "LaserClaw"
+    assert recipe.provider == original["provider"]
 
 
 def test_new_resonator_scan_matches_native_thin_lens_for_each_axis():

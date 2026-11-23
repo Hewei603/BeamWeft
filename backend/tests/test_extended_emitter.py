@@ -32,7 +32,7 @@ def test_bounds_are_usable_without_an_invented_fill(client):
     cid = client.post("/api/cases", json={"title": "Emission bounds"}).json()["id"]
     got = client.post(
         f"/api/cases/{cid}/studies/run/sample_phase_space_source",
-        json={"provider": "LaserClaw", "version": "1", "inputs": emitter().model_dump()},
+        json={"provider": "BeamWeft", "version": "1", "inputs": emitter().model_dump()},
     )
     assert got.status_code == 200, got.text
     data = got.json()

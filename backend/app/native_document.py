@@ -7,6 +7,8 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile, mkdtemp
 
+from .storage_paths import PROJECT_SUFFIX, database_path
+
 MARKER = "opened-case.json"
 
 
@@ -18,7 +20,7 @@ def fingerprint(source):
 def write_snapshot_file(path, write, check_destination, *, new=False):
     """Publish a finished snapshot beside its destination, leaving partial writes private."""
     check_destination()
-    with NamedTemporaryFile(dir=path.parent, prefix=".laserclaw-", delete=False) as stream:
+    with NamedTemporaryFile(dir=path.parent, prefix=".beamweft-", delete=False) as stream:
         target = Path(stream.name)
     try:
         write(target)
@@ -40,7 +42,7 @@ def _lost_project(folder):
     marker = folder / MARKER
     if not marker.is_file():
         return False
-    database = folder / "laserclaw.db"
+    database = database_path(folder)
     try:
         record = json.loads(marker.read_text(encoding="utf-8"))
         case_id = record["case_id"]
@@ -96,6 +98,8 @@ class NativeDocument:
         return self.folder
 
     def save(self, write, *, selection=None):
+        if self.path.suffix.lower() != PROJECT_SUFFIX:
+            raise ValueError("请将旧格式工程另存为 .beamweft 文件。")
         with self.locked() as db:
             row = db.execute("SELECT digest, folder FROM document WHERE id=1").fetchone()
             if selection is not None and row and selection.previous_digest != row[0]:

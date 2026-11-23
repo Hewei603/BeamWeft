@@ -5,7 +5,34 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from app.desktop_ui import DesktopFrontend, desktop_assets
+from app.storage_paths import (
+    PREVIOUS_DATABASE, PREVIOUS_DATA_ENV, PREVIOUS_DATA_ROOT, database_path, library_data_root,
+)
 from scripts.desktop_status import build_identity
+
+
+def test_desktop_data_selection_keeps_an_existing_library_and_respects_explicit_roots(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("BEAMWEFT_DATA_DIR", raising=False)
+    monkeypatch.delenv(PREVIOUS_DATA_ENV, raising=False)
+    current = tmp_path / "BeamWeft-Data"
+    previous = tmp_path / PREVIOUS_DATA_ROOT
+    assert library_data_root() == current
+    assert database_path(current) == current / "beamweft.db"
+    (current / "desktop-ui").mkdir(parents=True)
+    previous.mkdir()
+    old_db = previous / PREVIOUS_DATABASE
+    old_db.write_bytes(b"previous lab")
+    assert library_data_root() == previous
+    assert database_path(previous) == old_db
+    assert not (current / "beamweft.db").exists()
+    (current / "beamweft.db").write_bytes(b"new lab")
+    assert library_data_root() == current
+    monkeypatch.setenv(PREVIOUS_DATA_ENV, str(previous))
+    assert library_data_root() == previous
+    monkeypatch.setenv("BEAMWEFT_DATA_DIR", str(current))
+    assert library_data_root() == current
+    assert old_db.read_bytes() == b"previous lab"
 
 
 def test_reopening_uses_content_even_if_installers_rewrite_lockfile(tmp_path):
@@ -73,7 +100,7 @@ def test_library_and_native_document_share_assets_but_keep_their_own_route_conte
     (tmp_path / "assets").mkdir()
     (tmp_path / "index.html").write_text("<head></head><main></main>")
     (tmp_path / "assets" / "plot.js").write_text("const plot = 1;")
-    for head in ("", '<meta name="laserclaw-case-copy" content="current">'):
+    for head in ("", '<meta name="beamweft-case-copy" content="current">'):
         ui = DesktopFrontend(tmp_path, head=head)
         with TestClient(Starlette(routes=[Route("/{path:path}", ui.response)])) as client:
             page = client.get("/cases/23?model_revision=9")

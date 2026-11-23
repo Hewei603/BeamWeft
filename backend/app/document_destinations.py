@@ -42,8 +42,8 @@ class DocumentDestinations:
         if not name:
             return None
         path = Path(name).resolve()
-        if path.suffix.lower() != ".lclaw":
-            raise ValueError("请选择扩展名为 .lclaw 的工程文件。")
+        if path.suffix.lower() != ".beamweft":
+            raise ValueError("请选择扩展名为 .beamweft 的工程文件。")
         target = Destination(path, fingerprint(path) if path.exists() else None)
         now = time.monotonic()
         token = secrets.token_urlsafe(24)

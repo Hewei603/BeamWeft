@@ -8,12 +8,13 @@ from typing import Optional
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from .agent_settings import OpenAIReasoningEffort
+from .storage_paths import database_path
 
 # Look for .env next to the repo root as well as the current working directory,
 # so running uvicorn from backend/ still picks up the project-level config.
-# Tests set LASERCLAW_NO_DOTENV=1 so a developer's local .env (real API keys,
+# Tests set BEAMWEFT_NO_DOTENV=1 so a developer's local .env (real API keys,
 # a different provider) can never change what the suite exercises.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # Absolute paths only: a relative ".env" would make precedence depend on the
@@ -21,7 +22,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # Later entries win, so a backend/.env can override the repo-root one.
 _ENV_FILES: tuple[str, ...] | None = (
     None
-    if os.environ.get("LASERCLAW_NO_DOTENV")
+    if os.environ.get("BEAMWEFT_NO_DOTENV")
     else (str(_REPO_ROOT / ".env"), str(_REPO_ROOT / "backend" / ".env"))
 )
 
@@ -64,7 +65,8 @@ class Settings(BaseSettings):
     """Settings loaded from environment variables or backend/.env."""
 
     # Database settings
-    database_url: str = "sqlite:///./laserclaw.db"
+    database_url: str = Field(default_factory=lambda: "sqlite:///./" + database_path(
+        Path.cwd() if _IN_CONTAINER else _REPO_ROOT / "backend").name)
 
     # File upload settings
     upload_dir: str = "./uploads"
@@ -153,9 +155,9 @@ class Settings(BaseSettings):
     def _normalize_database_url(cls, value: str) -> str:
         """Pin relative SQLite paths and use the installed PostgreSQL driver.
 
-        `sqlite:///./laserclaw.db` resolves to a DIFFERENT database depending on
+        A relative SQLite URL resolves to a DIFFERENT database depending on
         where uvicorn/alembic was started — the historical data lives in
-        backend/laserclaw.db (launcher and alembic both run from backend/), so
+        the backend directory (launcher and alembic both run from there), so
         every start location is normalized to that file. Absolute paths,
         :memory: and explicit driver URLs pass through untouched. Bare PostgreSQL
         URLs use psycopg2, which requirements.txt installs; SQLAlchemy's default

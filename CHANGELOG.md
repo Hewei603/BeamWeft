@@ -1,8 +1,14 @@
 # Changelog
 
+## 1.9.1 — 2026-11-22
+
+- Use BeamWeft for the application, launch and update scripts, documentation, and Windows distribution.
+- Save new portable projects as `.beamweft`. Earlier project files can be opened and saved as a new BeamWeft file.
+- New desktop libraries use `BeamWeft-Data`. The launcher discovers an existing library when upgrading.
+
 ## 1.9.0 — 2026-11-22
 
-LaserClaw is now **BeamWeft**. The Windows launcher is `Launch-BeamWeft.bat`. Existing shortcuts, `.lclaw` projects, laboratory data directories and study-provider identifiers remain compatible.
+The Windows launcher is `Launch-BeamWeft.bat`. Existing projects and laboratory libraries can be opened.
 
 - Continue editing an Agent-built optical layout directly on the canvas. A project with one saved alternative and no main revision opens that design. Projects with parallel alternatives offer a choice. Archived replies open the exact revision used at the time, and a new Agent question can use the experimenter's unsaved canvas.
 
@@ -29,19 +35,19 @@ The owner reserved 2.0 for a later third review and major optimization. The runt
 - Preserve composer and project drafts across case/workbench tabs; append contextual prompts without overwriting text or mixing project versions. Warn before closing a page with edited text/model data.
 - Keep successful saves/replacements visible when a subsequent read fails. Isolate optional case-resource failures, expose project retry, and distinguish unknown inventory loan state from an empty list.
 - Add an explicit return dialog, direct evidence navigation, keyboard-accessible workbench upload, graph reload retry, responsive navigation, consistent case fields and higher-contrast primary controls.
-- Validate 643 backend tests (2 PostgreSQL tests skipped), 3 frontend draft-contract tests, ESLint, production build and isolated browser workflows. The browser Agent provider is scripted; numerical kernels are real. See `docs/releases/1.8.0/README.md` for limitations and the updated audit mapping.
+- Validate 643 backend tests (2 PostgreSQL tests skipped), 3 frontend draft-contract tests, ESLint, production build and isolated browser workflows. The browser Agent provider is scripted; numerical kernels are real.
 
-## 2.0.0 — LaserClaw 2.0
+## Historical development milestones
 
 Historical development label, superseded by the current 1.8.0 maintenance baseline; retained without rewriting its original evidence.
 
 The release consolidates the task-led Agent, editable optical engineering, Codex subscription transport, scientific visualization and daily-workflow repairs. Backend, frontend handshake and frontend package versions are 2.0.0. Earlier v3.x labels below describe unpublished development milestones, not released Git tags.
 
-- Added a homepage API Key / Codex exec connection selector. Codex exec reuses the backend host's ChatGPT CLI sign-in, defaults to GPT-6.1 Sol, and supports existing chat, image intake, plans, reports, memory summaries and the iterative workbench tool loop. Structured CLI actions are validated and executed by LaserClaw's existing tools. Added sign-in status, a real connection test, timeouts, readable subscription errors and subscription-aware usage accounting. Saved API profiles remain available when switching back. See docs/CODEX_EXEC.md.
+- Added a homepage API Key / Codex exec connection selector. Codex exec reuses the backend host's ChatGPT CLI sign-in, defaults to GPT-6.1 Sol, and supports existing chat, image intake, plans, reports, memory summaries and the iterative workbench tool loop. Structured CLI actions are validated and executed by the workbench tools. Added sign-in status, a real connection test, timeouts, readable subscription errors and subscription-aware usage accounting. Saved API profiles remain available when switching back. See docs/CODEX_EXEC.md.
 - Added physical-position field-radius/envelope plots, selectable Gaussian cross sections, radius/diameter and unit controls, medium/active-region shading, and CSV/SVG/PNG exports. Workbench scenarios and two-parameter stability maps have descriptive axes, units and explicit calculation boundaries; engineering results can use the full page width.
 - Current optical projects now take precedence over obsolete specialized designs in plans/reports and the case overview, while historical records remain available. Agent completion refreshes case artifacts without discarding an in-progress conversation.
 
-- Published the real-case acceptance report, optical figures, editable model and raw numerical evidence under docs/releases/2.0.0. Maximum-power optimization remains explicitly incomplete because the current ABCD tool lacks the required gain/power solver and measured constraints.
+- Published the real-case acceptance report, optical figures, editable model and raw numerical evidence in the historical source tree. Maximum-power optimization remains explicitly incomplete because the current ABCD tool lacks the required gain/power solver and measured constraints.
 - Fixed clean-environment release checks: CI fetches a pinned upstream Rezonator calculation oracle without bundling it in the product; local cross-checks explicitly skip when the optional checkout is absent. Bare PostgreSQL URLs now select the installed psycopg2 driver consistently in the app and Alembic.
 
 ## Development milestones included in 2.0
@@ -58,7 +64,7 @@ The release consolidates the task-led Agent, editable optical engineering, Codex
 - M2 spacing and thermal-lens previews now recompute the saved design directly through read-only physics endpoints without invoking the LLM. Piecewise q propagation retains both sides of interfaces/lenses and adaptively resolves narrow pump waists. Unstable cavities return no fabricated eigenmode; stability scans preserve unclipped numerical values. The current model remains scalar and axisymmetric (T=S), not complete Rezonator feature parity.
 
 - v3.1 connects title/description, owned optics, inventory bindings and fixed positions to the numerical design search. R-only lenses use an explicit N-BK7 assumption; unknown core/NA no longer blocks geometrical placement. Missing parts become proposed specifications rather than fabricated user facts.
-- Added 1 mm M2 rear-face distance scans, cold-cavity and thermal-scenario stability curves, direct placement cards, an editable constraint panel, whole-path component sourcing, and deterministic Rezonator 2 cold-cavity export. Cross-checked exported matrices and mode sizes against the bundled Rezonator reference calculations. The runtime remains LaserClaw's Python ABCD implementation.
+- Added 1 mm M2 rear-face distance scans, cold-cavity and thermal-scenario stability curves, direct placement cards, an editable constraint panel, whole-path component sourcing, and deterministic Rezonator 2 cold-cavity export. Cross-checked exported matrices and mode sizes against the bundled Rezonator reference calculations. The runtime remains the Python ABCD implementation.
 - Search now scores all admissible grid points before pruning, including the exact thermal-lens trace. Fixed constraints are enforced, incompatible placements are explained, and nominal fiber markings cannot silently become measured beam sizes or an output-power optimum.
 - Rebuilt experiment planning as the v3.0 conversational design workspace: title/notes case creation, image-backed requirement intake, persisted background runs, editable follow-up requirements, version history, candidate comparison, beam envelopes, component coordinates and CSV exports.
 - Added deterministic end-pumped plane-concave cavity design with composite-crystal optical length, active-section threshold gain, bounded thermal-lens scenarios, fiber imaging, and inventory matching by coating, curvature, quantity and condition. R50 is not f50 and AR880 is not AR808. Output power and optimal output coupling are not invented.
@@ -73,8 +79,7 @@ The release consolidates the task-led Agent, editable optical engineering, Codex
 - Added literature search (v2.2.0) with three entries — a standalone 文献检索 page (`POST /api/literature/search`), a `literature_search` case module, and an agent chat mode — backed by one deterministic service over keyless OpenAlex + arXiv: DOI/title dedup, honest statuses (per-source failure notes, `failed` instead of silently-empty, Chinese `needs_input` naming the missing field), BibTeX export, and an explicit "metadata + abstracts only, no full texts were read" disclaimer. Archived module results index into case RAG so plans/reports can cite them. Chat queries derive the search terms deterministically from the sentence (asking words stripped) or the case's physics parameters.
 - Fixed `generated_content_id` never persisting into any module's stored `result_json`: the run endpoint mutated the same dict object it had already assigned, which SQLAlchemy's JSON column change detection cannot see.
 
-- Fixed the stale-backend deployment gap: the launcher now takes over ports held by old LaserClaw processes, `/health` reports the app version, and the frontend shows a Chinese "restart the launcher" banner on version mismatch (`tests/test_version_handshake.py` pins the three version strings together).
-- Moved launcher-run experiment data out of the code tree to `%USERPROFILE%\LaserClaw-Data`, with a one-time automatic copy of legacy in-tree data (`backend/app/data_migration.py`) and a new `Update-LaserClaw.bat` one-click updater.
+- Fixed the stale-backend deployment gap: the launcher now takes over ports held by earlier workbench processes, `/health` reports the app version, and the frontend shows a Chinese "restart the launcher" banner on version mismatch (`tests/test_version_handshake.py` pins the three version strings together).
 - Integrated crystal cut-angle matching into the L1 inventory evaluator (`phase_match` requirement: per-material phase-match angle vs labelled cut, three-state with 180°−θ equivalence) and added a "nonlinear crystal (cut angle)" mode to the inventory match form.
 - Added a full-BOM export (`/api/cases/{id}/components/bom.csv`, Chinese headers, owned parts included) for the teardown 泵表 deliverable; both component CSVs now carry a UTF-8 BOM so Excel renders Chinese correctly.
 - Closed real-workbook geometry parsing gaps (lens focal lengths `F=300mm/f=250 mm/F100` into a new `focal_length_mm` field + migration 0010, `Φ25*5mm` diameter×thickness, `D>18mm` lower bounds); geometry cells that still parse to nothing now downgrade the row to the review queue with a "几何列未解析" note instead of vanishing.

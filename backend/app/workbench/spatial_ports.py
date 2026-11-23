@@ -25,7 +25,7 @@ class SpatialDetector(StrictInput):
     detector: Terminal = Field(
         title="探测端口",
         description="取该端口沿出射方向的场，在其参考平面采样。",
-        json_schema_extra={"x-laserclaw-input": "network-port"},
+        json_schema_extra={"x-beamweft-input": "network-port"},
     )
     window_mm: float = Field(default=4, gt=0, le=1e5, title="探测视场全宽 / mm")
     samples: Literal[64, 128, 256, 512] = Field(default=128, title="视场内每边采样数",

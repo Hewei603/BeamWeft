@@ -1,3 +1,4 @@
+import {isBuiltInProvider} from '../brand';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {workbenchApi} from '../api/workbench';
 import ScientificPlot from './ScientificPlot';
@@ -19,7 +20,7 @@ const withUnit=(value,unit)=>unit?value+' '+unit:String(value);
 function inputOptions(record,history) {
   const options=[];
   const schema=record.definition.inputs || {};
-  const opticalSystem=record.definition.provider==='LaserClaw' && schema.properties?.elements?.items?.$ref==='#/$defs/OpticalElement';
+  const opticalSystem=isBuiltInProvider(record.definition.provider) && schema.properties?.elements?.items?.$ref==='#/$defs/OpticalElement';
   const layoutPaths=new Map(Object.entries(history?.layout_parameters || {}).map(([root,items])=>
     [root,new Map(items.map(item=>[JSON.stringify(item.path),item]))]));
   function visit(value,path,labels,field) {
@@ -35,7 +36,7 @@ function inputOptions(record,history) {
       for(const [key,v] of Object.entries(value)) {
         const index=Array.isArray(value);
         const nested=resolveInputField(index?(field?.prefixItems?.[key] ?? field?.items):(field?.properties?.[key] ?? field?.additionalProperties),schema);
-        const catalogLabel=record.definition.provider==='LaserClaw' && field?.$ref==='#/$defs/OpticalElement' && opticalParameterLabels[key];
+        const catalogLabel=isBuiltInProvider(record.definition.provider) && field?.$ref==='#/$defs/OpticalElement' && opticalParameterLabels[key];
         const title=nested?.title;
         const descriptive=title && title.toLowerCase().replaceAll(' ','_')!==key;
         const label=index?(v?.name || v?.uid || '第 '+(Number(key)+1)+' 项'):(descriptive && title) || catalogLabel || title || key;

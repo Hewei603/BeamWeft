@@ -63,7 +63,7 @@ def configure_environment(*, use_env_file: bool = False) -> None:
         load_env_file(ROOT / ".env", override=False)
         load_env_file(BACKEND / ".env", override=False)
     database_url = os.environ.get("DATABASE_URL", "")
-    if not database_url or "@db:" in database_url or database_url.startswith("postgresql://laserclaw:laserclaw123@db"):
+    if not database_url or "@db:" in database_url:
         os.environ["DATABASE_URL"] = "sqlite:///./_resume_metrics.db"
     os.environ.setdefault("UPLOAD_DIR", str(BACKEND / "uploads"))
     if os.environ.get("UPLOAD_DIR") == "/app/uploads":

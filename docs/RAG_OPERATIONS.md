@@ -53,7 +53,7 @@ Docker Compose uses `pgvector/pgvector:pg15`.
 Recommended env for the included migration:
 
 ```env
-DATABASE_URL=postgresql://laserclaw:laserclaw123@localhost:5432/laserclaw
+DATABASE_URL=postgresql://beamweft:beamweft123@localhost:5432/beamweft
 EMBEDDING_PROVIDER=sentence_transformers
 EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 RETRIEVAL_BACKEND=pgvector
@@ -66,7 +66,7 @@ Run integration tests:
 
 ```powershell
 $env:RUN_PGVECTOR_TESTS="1"
-$env:DATABASE_URL="postgresql://laserclaw:laserclaw123@localhost:5432/laserclaw"
+$env:DATABASE_URL="postgresql://beamweft:beamweft123@localhost:5432/beamweft"
 $env:RETRIEVAL_BACKEND="pgvector"
 $env:EMBEDDING_PROVIDER="sentence_transformers"
 $env:EMBEDDING_MODEL="BAAI/bge-small-en-v1.5"

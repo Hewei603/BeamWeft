@@ -22,7 +22,7 @@ from .attachment_evidence import OriginalRemoved
 settings = get_settings()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("laserclaw")
+logger = logging.getLogger("beamweft")
 
 # Must run before create_all: create_all would materialize an empty database at
 # the new location, and the legacy-data copy only ever fills an empty target.

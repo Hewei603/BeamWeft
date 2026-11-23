@@ -44,9 +44,11 @@ docker compose ps
 
 Expected services:
 
-- `laserclaw_db`
-- `laserclaw_backend`
-- `laserclaw_frontend`
+- `db`
+- `backend`
+- `frontend`
+
+When updating an existing Compose deployment, keep its Compose project name so Docker locates the same named volumes. Set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in your local `.env` to the values used when the existing database was created. A new installation uses the BeamWeft defaults.
 
 Smoke endpoints:
 
@@ -91,8 +93,6 @@ X-User-Id: <user id>
 X-User-Role: user|reviewer|admin
 ```
 
-Clients configured with the original `X-LaserClaw-API-Key` header can continue using it.
-
 Project-level ACL is enforced for cases, knowledge search, attachments, generated content, Agent tasks, case modules, and bundle export.
 
 The built-in API-key mode is suitable for local and small trusted deployments. For shared production deployments, put BeamWeft behind a proper identity provider or reverse proxy that issues trusted user context server-side.
@@ -101,11 +101,12 @@ The built-in API-key mode is suitable for local and small trusted deployments. F
 
 - Database: SQLite locally or PostgreSQL in Docker.
 - Launcher (`Launch-BeamWeft.bat`) runs: all data lives OUTSIDE the code tree in
-  `%USERPROFILE%\LaserClaw-Data` (`laserclaw.db`, `uploads\`, `vector_store\`).
+  `%USERPROFILE%\BeamWeft-Data` for a fresh installation (`beamweft.db`, `uploads\`, `vector_store\`).
+  Upgrades discover the existing library and show its path at startup.
   On first start after upgrading from a pre-2.1 layout, the backend copies the
   legacy in-tree data there automatically (`backend/app/data_migration.py`); the
   in-tree originals are left behind as a backup.
-- Manual `uvicorn` runs and Docker keep their configured paths (`backend/laserclaw.db`,
+- Manual `uvicorn` runs and Docker respect their configured paths (`backend/beamweft.db`,
   `/app/uploads`, `VECTOR_STORE_DIR`).
 - Private eval datasets: `docs/evals/private`, ignored by Git except `.gitkeep`.
 - Authorized lab documents: `uploads/authorized_lab_docs` under the active upload dir, ignored by Git.
@@ -116,8 +117,7 @@ The built-in API-key mode is suitable for local and small trusted deployments. F
    BeamWeft → 从 GitHub 拉取最新代码 → 重新启动。
 2. 如果这台电脑没装 Git(更新器会用中文提示),就找维护者要一份新版压缩包,
    解压到一个**新文件夹**,双击其中的 `Launch-BeamWeft.bat` 即可。
-3. 实验数据(元件库、案例、借还记录、附件)保存在 `%USERPROFILE%\LaserClaw-Data`,
-   **不在代码文件夹里**——无论哪种更新方式都不会丢数据。
+3. 实验数据集中保存在启动窗口显示的资料库目录。升级时使用同一个资料库，新装默认使用 `%USERPROFILE%\BeamWeft-Data`。
 4. 更新后如果页面顶部出现红色横幅"后端程序是旧版本",按横幅提示关闭两个黑色
    窗口再重新双击 `Launch-BeamWeft.bat`(启动器也会自动尝试接管旧进程)。
 
@@ -128,7 +128,7 @@ For SQLite, back up the `.db` file and `backend/uploads`.
 For Docker/PostgreSQL:
 
 ```powershell
-docker exec laserclaw_db pg_dump -U laserclaw laserclaw > laserclaw-backup.sql
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > beamweft-backup.sql
 ```
 
 Also back up upload and vector-store volumes:

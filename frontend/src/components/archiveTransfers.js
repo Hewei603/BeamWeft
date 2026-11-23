@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { draftStorageKey } from './projectDraft.js';
+import { draftStorageKey, previousDraftKey, storedDraftText } from './projectDraft.js';
 
 const sessions = new Map();
 const storageWarning = '此标签页无法保存上传凭据。刷新前请完成归档或保留原文件。';
@@ -32,12 +32,14 @@ export class ArchiveTransfers {
 
   constructor(key, storage) {
     this.prefix = key + '/';
+    this.previousPrefix = previousDraftKey(this.prefix);
     try {
       this.storage = storage || window.sessionStorage;
-      for (let n=0; n<this.storage.length; n++) {
-        const name = this.storage.key(n);
-        if (!name.startsWith(this.prefix)) continue;
-        const data = JSON.parse(this.storage.getItem(name));
+      const keys = Array.from({length:this.storage.length}, (_,index)=>this.storage.key(index));
+      for (const name of keys) {
+        const prefix = name.startsWith(this.prefix) ? this.prefix : this.previousPrefix;
+        if (!prefix || !name.startsWith(prefix)) continue;
+        const data = JSON.parse(storedDraftText(this.storage, this.prefix + name.slice(prefix.length)));
         this.entries.set(data.key,{...data, pending:false});
       }
     } catch { this.warning = storageWarning; }
@@ -59,6 +61,7 @@ export class ArchiveTransfers {
         const {key, label, name, size, hash, message, composer} = entry;
         this.storage.setItem(this.prefix+key, JSON.stringify({key,label,name,size,hash,message,composer}));
       } else this.storage.removeItem(this.prefix+key);
+      if (this.previousPrefix) this.storage.removeItem(this.previousPrefix+key);
     } catch { this.warning = storageWarning; }
   }
   remove(key) {

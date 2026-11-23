@@ -2,10 +2,10 @@
 import math
 from copy import deepcopy
 from typing import Literal
-from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import Field, model_validator
 
+from ..study_compat import persistent_optic_uid
 from .authoring import EditableSystem
 from .beam_predictions import fitted_curvature, predictions
 from .beam_source import FitOrigin, SourceAxis
@@ -95,7 +95,7 @@ def bind_measured_launch(db, case_id, request):
         if request.entry_uid not in anchors or request.exit_uid not in anchors or anchors[request.entry_uid][0] > anchors[request.exit_uid][0]:
             raise ValueError("请选择工程中沿传播方向排列的首尾元件。")
         source_z = anchors[request.entry_uid][1]
-        uid = str(uuid5(NAMESPACE_URL, "laserclaw:measured-launch:" + request.model_dump_json()))
+        uid = persistent_optic_uid("measured-launch", request.model_dump_json())
         path = {"uid":uid, "name":f"实测入射束 · 拟合 #{study['id']}", "target_uid":request.entry_uid,
                 "through_uid":request.exit_uid, "tangential":{}, "sagittal":{},
                 "launch_ray":{"t_offset_mm":None,"s_offset_mm":None,"t_angle_mrad":None,"s_angle_mrad":None}}

@@ -9,8 +9,8 @@ def choose(source):
     window.withdraw()
     try:
         return filedialog.asksaveasfilename(
-            parent=window, title="工程另存为", initialdir=str(source.parent), initialfile=source.name,
-            defaultextension=".lclaw", filetypes=[("BeamWeft 工程", "*.lclaw")], confirmoverwrite=True,
+            parent=window, title="工程另存为", initialdir=str(source.parent), initialfile=source.with_suffix(".beamweft").name,
+            defaultextension=".beamweft", filetypes=[("BeamWeft 工程", "*.beamweft")], confirmoverwrite=True,
         )
     finally:
         window.destroy()

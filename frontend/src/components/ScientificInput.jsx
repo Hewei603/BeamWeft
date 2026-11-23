@@ -1,3 +1,4 @@
+import {inputWidget} from '../brand.js';
 import React, {useId} from 'react';
 import StudyObjectInput from './StudyObjectInput';
 import OriginalFileInput,{fileRef} from './OriginalFileInput';
@@ -11,11 +12,11 @@ export function shape(field) {
 export function originalField(schema, field) {
   const spec=shape(field);
   const target=schema.$defs?.[spec.$ref?.split('/').at(-1)] || spec;
-  if(target['x-laserclaw-input']==='original-file')return 'single';
+  if(inputWidget(target)==='original-file')return 'single';
   if(target.type==='array' && target.items){
     const item=shape(target.items);
     const entry=schema.$defs?.[item.$ref?.split('/').at(-1)] || item;
-    if(entry['x-laserclaw-input']==='original-file')return 'list';
+    if(inputWidget(entry)==='original-file')return 'list';
   }
   return null;
 }
@@ -88,7 +89,7 @@ export function InputField({name,field:original,value,required,onChange,port,sch
   if(!choices && objectSchema) return <div className="study-input study-object-field"><StudyObjectInput title={title} config={objectSchema}
     value={value} files={files} required={required} disabled={disabled} description={original.description} onChange={onChange} onBlur={onBlur}/></div>;
   if(choices){
-    const selected=choiceValue(original['x-laserclaw-input'],value);
+    const selected=choiceValue(inputWidget(original),value);
     const missing=selected && !choices.some(item=>item.value===selected);
     control=<select {...props} value={selected}><option value="">{choices.length?(required?'请选择':'未指定'):'所选光路中没有此类对象'}</option>
       {missing && <option value={selected}>{selected}（所选光路中缺失）</option>}

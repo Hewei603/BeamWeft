@@ -1,3 +1,4 @@
+import {inputWidget} from '../brand.js';
 const scalarTypes = new Set(['string', 'integer', 'number', 'boolean']);
 const composites = ['allOf','oneOf','not','if','then','else','dependentSchemas','patternProperties','discriminator'];
 const plainObject = value => value != null && typeof value === 'object' && !Array.isArray(value);
@@ -21,16 +22,16 @@ export function resolveInputField(field, root) {
 
 export function objectInputSchema(field, root) {
   const outer = resolveInputField(field,root);
-  if (!outer || outer['x-laserclaw-input']) return null;
+  if (!outer || inputWidget(outer)) return null;
   const list = outer.type === 'array';
   const object = list ? resolveInputField(outer.items,root) : outer;
-  if (object?.type !== 'object' || !object.properties || object['x-laserclaw-input'] ||
+  if (object?.type !== 'object' || !object.properties || inputWidget(object) ||
       plainObject(object.additionalProperties) || object.propertyNames || object.dependentRequired) return null;
   const properties = Object.create(null);
   for (const [key, declaration] of Object.entries(object.properties)) {
     const property = resolveInputField(declaration,root);
     if (!property || property.readOnly) return null;
-    const widget=property['x-laserclaw-input'];
+    const widget=inputWidget(property);
     if(widget?widget!=='original-file':!scalarTypes.has(property.type))return null;
     properties[key] = {...property,required:object.required?.includes(key) ?? false};
   }
@@ -40,7 +41,7 @@ export function objectInputSchema(field, root) {
 
 function matches(value, field) {
   if (value === null) return field.nullable;
-  if(field['x-laserclaw-input']==='original-file')return plainObject(value) && Number.isSafeInteger(value.attachment_id)
+  if(inputWidget(field)==='original-file')return plainObject(value) && Number.isSafeInteger(value.attachment_id)
     && value.attachment_id>0 && Object.keys(value).every(key=>key==='attachment_id' || key==='sha256')
     && (value.sha256==null || typeof value.sha256==='string');
   if (Object.hasOwn(field,'const') && value !== field.const) return false;

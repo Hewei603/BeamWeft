@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '../api/agent';
-import { API_BASE_URL, nativeFileSource, openedCase } from '../api/client';
+import { API_BASE_URL, nativeFileId, nativeFileSource, openedCase } from '../api/client';
 import { casesApi } from '../api/cases';
 import { knowledgeApi } from '../api/knowledge';
 import { workbenchApi } from '../api/workbench';
@@ -14,7 +14,7 @@ import { ArchiveList, FilePreview, FileUpload, fileModeLabels } from '../compone
 import BeamStudy from '../components/BeamStudy';
 import StudyUsage from '../components/StudyUsage';
 import { useCaseRead } from './useCaseRead';
-import { ProjectFileActions, nativeFileId } from '../components/ProjectFile';
+import { ProjectFileActions } from '../components/ProjectFile';
 import { transfersFor } from '../components/archiveTransfers';
 
 const readLatest = (caseId, type) => casesApi.getGeneratedContents(caseId, type, 1);

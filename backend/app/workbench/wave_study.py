@@ -28,13 +28,13 @@ class WavePropagation(StrictInput):
         max_length=100,
         title="光路标识",
         description="primary 表示单程主光束，也可以填写工程中的入射支路标识。",
-        json_schema_extra={"x-laserclaw-input": "path-uid"},
+        json_schema_extra={"x-beamweft-input": "path-uid"},
     )
     plane_uid: Annotated[str, Field(min_length=1, max_length=100)] | None = Field(
         default=None,
         title="观察面标识",
         description="留空计算到所选光路末端。具名观察面使用该版本工程中登记的位置。",
-        json_schema_extra={"x-laserclaw-input": "plane-uid"},
+        json_schema_extra={"x-beamweft-input": "plane-uid"},
     )
     window_mm: float = Field(
         default=4,
@@ -243,7 +243,7 @@ WAVE_STUDY = Study(
     live_layout="layout",
     ignores_diagram_positions=True,
     layout_prefix_inputs={"path":"beam_uid","plane":"plane_uid"},
-    accepts_inputs_from=(("LaserClaw", "1"),),
+    accepts_inputs_from=(("BeamWeft", "1"),),
 )
 
 

@@ -67,7 +67,7 @@ class CapabilityDirectory:
         for name, (model, description) in registry.items():
             if name in {"replace_crystal", "finish"}:
                 continue
-            study, provider = studies.get(name, (None, "LaserClaw"))
+            study, provider = studies.get(name, (None, "BeamWeft"))
             title = study.title if study else labels.get(name, name)
             ports = [*study.input_ports.values(), *study.output_ports.values()] if study else []
             fields = " ".join(f"{key} {f.title or ''} {f.description or ''}" for key, f in model.model_fields.items())

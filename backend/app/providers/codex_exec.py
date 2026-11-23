@@ -235,7 +235,7 @@ class CodexExecProvider(OpenAIProvider):
         if not runtime["ready"]:
             raise CodexExecError(runtime["message"], category="authentication" if runtime.get("available") else "provider_response",
                                  basis="启动前的 CLI 可用性或登录状态检查未通过。", action="在运行后端的电脑核对 CLI 的可用性和登录状态，再测试连接。")
-        with tempfile.TemporaryDirectory(prefix="laserclaw-codex-") as directory:
+        with tempfile.TemporaryDirectory(prefix="beamweft-codex-") as directory:
             root = Path(directory)
             schema_path, answer_path = root / "schema.json", root / "answer.json"
             schema_path.write_text(json.dumps(schema or _JSON_SCHEMA, ensure_ascii=False), encoding="utf-8")

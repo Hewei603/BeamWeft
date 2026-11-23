@@ -8,6 +8,7 @@ from functools import lru_cache
 from pydantic import Field, JsonValue
 
 from ..solver_receipt import device_runtime_key
+from ..study_compat import study_input_schema
 from ..study_api import StrictInput
 from ..version import provider_display_name
 
@@ -20,13 +21,16 @@ class Prescription(StrictInput):
     provider: str = Field(min_length=1)
     parameters: dict[str, JsonValue] = Field(default_factory=dict)
 
+    def installed_prescription(self):
+        return {**self.model_dump(), "provider": provider_display_name(self.provider)}
+
     def definition(self, representation):
         from .tools import STUDIES
         entry = STUDIES.get(self.study)
         if entry:
             study, provider = entry
             law = study.element_law
-            if provider == self.provider and study.version == self.version and law and law.representation == representation:
+            if provider == provider_display_name(self.provider) and study.version == self.version and law and law.representation == representation:
                 return study
         raise ValueError(f"重算此元件需要 {provider_display_name(self.provider)} 中的 {self.study} v{self.version}（{representation}）。可查看保存时的计算结果。")
 
@@ -108,7 +112,7 @@ def _transfer(installed, state, recipe_json, representation, wavelength_nm, leng
 
 @lru_cache(maxsize=128)
 def device_input_schema(model):
-    return model.model_json_schema()
+    return study_input_schema(model)
 
 
 def editable_setting(schema, value, path, root, seen=()):
@@ -117,7 +121,7 @@ def editable_setting(schema, value, path, root, seen=()):
         return schema
     if schema.get("type") == "null" and value is not None:
         return True  # Nullable Pydantic fields carry a second, inactive branch.
-    if schema.get("readOnly") or "const" in schema or schema.get("x-laserclaw-input") == "original-file":
+    if schema.get("readOnly") or "const" in schema or schema.get("x-beamweft-input") == "original-file":
         return False
     if any(key in schema for key in ("if", "dependentSchemas", "not")):
         return False  # An opaque conditional has no unconditional edit permission.
@@ -168,7 +172,7 @@ def scalar_scan_fields(study):
 
 def device_definition(study, provider):
     law = study.element_law
-    schema = study.inputs.model_json_schema()
+    schema = device_input_schema(study.inputs)
     params = {k:p["default"] for k,p in schema["properties"].items() if "default" in p and k != law.wavelength_input}
     params.update(law.preset)
     length = params.pop(law.length_input, 0)

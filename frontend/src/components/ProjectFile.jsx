@@ -4,7 +4,7 @@ import {casesApi} from '../api/cases';
 import {useLanguage} from '../LanguageContext';
 import {useMenuAction} from './menuCommands';
 
-export const nativeFileId = globalThis.document?.querySelector('meta[name="laserclaw-native-file"]')?.content;
+import {nativeFileId, nativeRequiresSaveAs} from '../api/client';
 
 export function OpenProjectFile() {
   const {t} = useLanguage();
@@ -50,8 +50,8 @@ export function ProjectFileActions({id, title, createdAt, editor, transfers, onD
         editor.current.checkFileInputs();
       }
       const handle = !nativeSave && !legacy && window.showSaveFilePicker ? await window.showSaveFilePicker({
-        suggestedName: (title.replace(/[<>:"/\\|?*]/g, '_').slice(0, 90) || 'BeamWeft') + '.lclaw',
-        types: [{description:'BeamWeft', accept:{'application/octet-stream':['.lclaw']}}],
+        suggestedName: (title.replace(/[<>:"/\\|?*]/g, '_').slice(0, 90) || 'BeamWeft') + '.beamweft',
+        types: [{description:'BeamWeft', accept:{'application/octet-stream':['.beamweft']}}],
       }) : null;
       const archivesReady = async () => {
         if (transfers.pending.size) setStatus({busy:true, text:t('caseDetail.waitingForFiles')});
@@ -64,7 +64,7 @@ export function ProjectFileActions({id, title, createdAt, editor, transfers, onD
       setStatus({busy:true, text:t('common.saving')});
       if (!legacy && !editor.current) throw Error('工作台正在读取，请稍后保存。');
       let selection;
-      if (nativeSave && format === 'as') {
+      if (nativeSave && (format === 'as' || nativeRequiresSaveAs)) {
         selection = await casesApi.chooseSaveLocation();
         if (!selection) {setStatus(null); return;}
         // Keep later source edits visible if preparing or opening the snapshot takes time.
@@ -107,7 +107,7 @@ export function ProjectFileActions({id, title, createdAt, editor, transfers, onD
     } finally {activity.abort(); writing.current = false;}
   }
   useMenuAction('save', !status?.busy, () => save());
-  useMenuAction('saveAs', isNative && !status?.busy, () => save('as'));
+  useMenuAction('saveAs', isNative && !nativeRequiresSaveAs && !status?.busy, () => save('as'));
   useEffect(() => {
     const key = event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -117,8 +117,8 @@ export function ProjectFileActions({id, title, createdAt, editor, transfers, onD
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   });
-  return <><button className="btn btn-secondary" onClick={() => save()} disabled={status?.busy}>{t('caseDetail.fileSave')}</button>
-    {isNative && <button className="btn btn-secondary" onClick={() => save('as')} disabled={status?.busy}>{t('caseDetail.fileCopy')}</button>}
+  return <><button className="btn btn-secondary" onClick={() => save()} disabled={status?.busy}>{t(isNative && nativeRequiresSaveAs ? 'caseDetail.fileCopy' : 'caseDetail.fileSave')}</button>
+    {isNative && !nativeRequiresSaveAs && <button className="btn btn-secondary" onClick={() => save('as')} disabled={status?.busy}>{t('caseDetail.fileCopy')}</button>}
     {status && <small role={status.error ? 'alert' : 'status'}>{status.text}</small>}
     {status?.open && <a className="btn btn-secondary" href={status.open} target="_blank" rel="noopener">{t('caseDetail.openSavedFile')}</a>}
     {status?.repair && <button type="button" className="btn btn-secondary" onClick={()=>{setStatus(null);onRepairInput();}}>回到工程编辑</button>}

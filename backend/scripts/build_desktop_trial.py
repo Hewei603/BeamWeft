@@ -55,7 +55,7 @@ def build_interface(stage, dist):
 
 
 def runtime_sources():
-    for name in ("LICENSE", "CHANGELOG.md", "Launch-BeamWeft.bat", "Launch-LaserClaw.bat", "backend/requirements-desktop.txt",
+    for name in ("LICENSE", "CHANGELOG.md", "Launch-BeamWeft.bat", "backend/requirements-desktop.txt",
                  "backend/requirements.txt", "backend/alembic.ini", "docs/GUIDE_V2.md", "docs/CODEX_EXEC.md",
                  "docs/WORKBENCH.md", "docs/AGENT_FAILURES.md", "docs/WINDOWS_TRIAL.md"):
         yield REPO / name

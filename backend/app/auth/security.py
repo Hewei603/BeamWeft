@@ -18,7 +18,7 @@ class Principal:
 
 async def get_current_principal(
     x_beamweft_api_key: str | None = Header(default=None, alias="X-BeamWeft-API-Key"),
-    x_laserclaw_api_key: str | None = Header(default=None, include_in_schema=False),
+    previous_api_key: str | None = Header(default=None, alias="X-LaserClaw-API-Key", include_in_schema=False),
     x_user_email: str | None = Header(default=None),
     x_user_role: str | None = Header(default=None),
     x_user_id: int | None = Header(default=None),
@@ -41,7 +41,7 @@ async def get_current_principal(
     if settings.require_auth:
         if not settings.api_key:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="API_KEY is not configured")
-        supplied = [key for key in (x_beamweft_api_key, x_laserclaw_api_key) if key is not None]
+        supplied = [key for key in (x_beamweft_api_key, previous_api_key) if key is not None]
         if not supplied or any(key != settings.api_key for key in supplied):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 

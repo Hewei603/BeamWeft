@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Link, useLocation} from 'react-router-dom';
 import {useLanguage} from '../LanguageContext';
 import {productName} from '../brand';
+import {nativeFileId, nativeRequiresSaveAs} from '../api/client';
 import AgentSettings from './AgentSettings';
 import {OpenProjectFile} from './ProjectFile';
 import {useCurrentAction} from './menuCommands';
@@ -12,7 +13,7 @@ const copy = {
     file:'文件', edit:'编辑', resources:'资源', settings:'设置', help:'帮助',
     undo:'撤销光路修改', redo:'重做光路修改', editProject:'编辑工程资料…', library:'工程库',
     start:'快速入门', keys:'键盘快捷键', close:'关闭',
-    guide:['在「文件」中新建工程，只需输入名称。也可以打开已保存的 .lclaw 工程文件。',
+    guide:['在「文件」中新建工程，只需输入名称。也可以打开已保存的 .beamweft 工程文件。',
       '在光路图选中元件，可以拖动或输入位置。选择「保存新版本并复算」，即可查看该版本的计算结果。',
       '把测量原件放进工程的「实验资料」。在工程对话里描述目标，Agent 可以读取原件并调用物理工具。'],
     keysText:['Ctrl / ⌘ + S　保存工程文件','Ctrl / ⌘ + Z　撤销当前光路修改','Ctrl / ⌘ + Shift + Z　重做光路修改','Esc　关闭当前菜单或帮助']
@@ -21,7 +22,7 @@ const copy = {
     file:'File', edit:'Edit', resources:'Resources', settings:'Settings', help:'Help',
     undo:'Undo optical edit', redo:'Redo optical edit', editProject:'Edit project details…', library:'Project library',
     start:'Getting started', keys:'Keyboard shortcuts', close:'Close',
-    guide:['Choose File and create a project with a name, or open an existing .lclaw project.',
+    guide:['Choose File and create a project with a name, or open an existing .beamweft project.',
       'Select an element on the optical diagram. Drag it or enter a position, then save and recalculate to see the result for that revision.',
       'Add measurement files to the project and describe your goal in the project conversation. The Agent can read the files and run optical tools.'],
     keysText:['Ctrl / ⌘ + S　Save project file','Ctrl / ⌘ + Z　Undo optical edit','Ctrl / ⌘ + Shift + Z　Redo optical edit','Esc　Close menu or help']
@@ -86,7 +87,7 @@ export default function AppMenu() {
   }
   const contents = {
     file:<><Link to="/cases/new">{t('nav.newCase')}</Link><OpenProjectFile/><Link to="/cases">{words.library}</Link>
-      <hr/><button disabled={!save} onClick={()=>command(save)}>{t('caseDetail.fileSave')}</button>
+      <hr/><button disabled={!save} onClick={()=>command(save)}>{t(nativeRequiresSaveAs && projectId === nativeFileId ? 'caseDetail.fileCopy' : 'caseDetail.fileSave')}</button>
       {saveAs && <button onClick={()=>command(saveAs)}>{t('caseDetail.fileCopy')}</button>}</>,
     edit:<><button disabled={!undo} onClick={()=>command(undo)}>{words.undo}</button>
       <button disabled={!redo} onClick={()=>command(redo)}>{words.redo}</button><hr/>

@@ -82,13 +82,13 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg15
         env:
-          POSTGRES_USER: laserclaw
-          POSTGRES_PASSWORD: laserclaw123
-          POSTGRES_DB: laserclaw
+          POSTGRES_USER: beamweft
+          POSTGRES_PASSWORD: beamweft123
+          POSTGRES_DB: beamweft
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U laserclaw"
+          --health-cmd "pg_isready -U beamweft"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -111,13 +111,13 @@ jobs:
 
       - name: Run migrations
         env:
-          DATABASE_URL: postgresql://laserclaw:laserclaw123@localhost:5432/laserclaw
+          DATABASE_URL: postgresql://beamweft:beamweft123@localhost:5432/beamweft
         run: python -m alembic upgrade head
 
       - name: Run pgvector integration tests
         env:
           RUN_PGVECTOR_TESTS: "1"
-          DATABASE_URL: postgresql://laserclaw:laserclaw123@localhost:5432/laserclaw
+          DATABASE_URL: postgresql://beamweft:beamweft123@localhost:5432/beamweft
           RETRIEVAL_BACKEND: pgvector
           EMBEDDING_PROVIDER: local
           PGVECTOR_DIMENSION: "384"

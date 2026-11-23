@@ -25,7 +25,7 @@ def _legacy(tmp_path):
              uploads / "global_knowledge" / "source.txt"]
     for path in paths:
         path.write_text("Migration test evidence", encoding="utf-8")
-    engine = create_engine(f"sqlite:///{(repo / 'backend' / 'laserclaw.db').as_posix()}")
+    engine = create_engine(f"sqlite:///{(repo / 'backend' / 'beamweft.db').as_posix()}")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
         case = ExperimentCase(title="Migration case", goal="Test", cavity_type="linear")
@@ -42,7 +42,7 @@ def _legacy(tmp_path):
         db.commit()
     engine.dispose()
     data = tmp_path / "external-data"
-    settings = SimpleNamespace(database_url=f"sqlite:///{(data / 'laserclaw.db').as_posix()}",
+    settings = SimpleNamespace(database_url=f"sqlite:///{(data / 'beamweft.db').as_posix()}",
                                upload_dir=str(data / "uploads"), vector_store_dir=str(data / "vectors"))
     return repo, data, settings
 
@@ -54,9 +54,9 @@ def test_migrated_downloads_and_reindex_work_without_old_checkout(tmp_path, clie
         # Simulate the previous release's file-only migration and then launch
         # from a different checkout. No current-root prefix is available.
         data.mkdir()
-        shutil.copy2(repo / "backend" / "laserclaw.db", data / "laserclaw.db")
+        shutil.copy2(repo / "backend" / "beamweft.db", data / "beamweft.db")
         shutil.copytree(repo / "uploads", data / "uploads")
-        (data / "laserclaw.db.before-upload-paths.bak.copying").write_bytes(b"interrupted backup")
+        (data / "beamweft.db.before-upload-paths.bak.copying").write_bytes(b"interrupted backup")
         current_repo = tmp_path / "new-checkout"
         current_repo.mkdir()
     else:
@@ -66,7 +66,7 @@ def test_migrated_downloads_and_reindex_work_without_old_checkout(tmp_path, clie
     (repo / "uploads").rename(repo / "retired-uploads")
     assert migrate_legacy_data(settings, repo_root=current_repo) == []
 
-    backup = data / "laserclaw.db.before-upload-paths.bak"
+    backup = data / "beamweft.db.before-upload-paths.bak"
     assert not backup.with_name(backup.name + ".copying").exists()
     connection = sqlite3.connect(backup)
     try:
@@ -98,13 +98,13 @@ def test_existing_target_does_not_redirect_to_missing_or_different_files(tmp_pat
     repo, data, settings = _legacy(tmp_path)
     (data / "uploads").mkdir(parents=True)
     (data / "uploads" / "attachment.txt").write_text("Different bytes", encoding="utf-8")
-    shutil.copy2(repo / "backend" / "laserclaw.db", data / "laserclaw.db")
+    shutil.copy2(repo / "backend" / "beamweft.db", data / "beamweft.db")
     migrate_legacy_data(settings, repo_root=repo)
-    connection = sqlite3.connect(data / "laserclaw.db")
+    connection = sqlite3.connect(data / "beamweft.db")
     try:
         assert str(repo) in connection.execute("SELECT filepath FROM attachments").fetchone()[0]
         metadata = json.loads(connection.execute("SELECT metadata_json FROM knowledge_sources").fetchone()[0])
         assert str(repo) in metadata["filepath"]
     finally:
         connection.close()
-    assert not (data / "laserclaw.db.before-upload-paths.bak").exists()
+    assert not (data / "beamweft.db.before-upload-paths.bak").exists()

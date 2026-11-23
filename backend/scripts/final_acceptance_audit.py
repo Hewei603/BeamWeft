@@ -28,7 +28,7 @@ def _run_local_acceptance() -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit BeamWeft final enterprise acceptance gates.")
     parser.add_argument("--skip-local", action="store_true", help="Do not run scripts/acceptance_check.py.")
-    parser.add_argument("--github-repo", default="Hewei603/LaserClaw")
+    parser.add_argument("--github-repo", default="Hewei603/BeamWeft")
     parser.add_argument("--github-branch", default="main")
     parser.add_argument("--github-workflow", default="CI")
     parser.add_argument("--private-report", default=str(ROOT / "docs" / "evals" / "private" / "last_report.json"))

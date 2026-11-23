@@ -1,11 +1,11 @@
 """One-time copy of experiment data out of the code tree.
 
 Versions before 2.1 stored everything inside the repository — the database at
-``backend/laserclaw.db``, attachments in ``<repo>/uploads``, the RAG index in
+a SQLite file in ``backend/``, attachments in ``<repo>/uploads``, the RAG index in
 ``<repo>/backend/vector_store``. A user whose idea of "updating" is re-downloading
 the folder (the realistic path for a user with no software background) would
 silently lose all of it. The launcher now points ``DATABASE_URL`` / ``UPLOAD_DIR``
-/ ``VECTOR_STORE_DIR`` at ``%USERPROFILE%\\LaserClaw-Data``; this module copies the
+/ ``VECTOR_STORE_DIR`` at ``%USERPROFILE%\\BeamWeft-Data``; this module copies the
 legacy data there the first time the new location is empty.
 
 Copy, never move — and never through the final name: everything is copied to a
@@ -23,6 +23,8 @@ import shutil
 import sqlite3
 import filecmp
 from pathlib import Path
+
+from .storage_paths import database_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -178,7 +180,7 @@ def migrate_legacy_data(settings, repo_root: Path | None = None) -> list[str]:
 
     # Database ---------------------------------------------------------------
     target_db = _sqlite_path(settings.database_url)
-    legacy_db = root / "backend" / "laserclaw.db"
+    legacy_db = database_path(root / "backend")
     if target_db is not None:
         _clear_stale_staging(target_db)
         if (

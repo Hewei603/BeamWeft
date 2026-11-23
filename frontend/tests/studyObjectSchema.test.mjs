@@ -25,7 +25,7 @@ test('unsupported schemas and historical or invalid input stay in the original J
   for(const field of [{type:'object',additionalProperties:{type:'number'}},
     {type:'object',properties:{variable:{oneOf:[{type:'string'},{type:'number'}]}}},
     {type:'object',properties:{map:{type:'object',properties:{key:{type:'string'}}}}},
-    {type:'array',items:{$ref:'#/$defs/Absent'}}, {...attrs,'x-laserclaw-input':'original-file'}]) {
+    {type:'array',items:{$ref:'#/$defs/Absent'}}, {...attrs,'x-beamweft-input':'original-file'}]) {
     assert.equal(objectInputSchema(field,schema),null);
   }
   const descriptor=objectInputSchema(optional,schema);
@@ -36,11 +36,11 @@ test('unsupported schemas and historical or invalid input stay in the original J
 });
 
 test('an ordered list of calibrated originals can use the picker while preserving frozen references',()=>{
-  const root={$defs:{File:{type:'object','x-laserclaw-input':'original-file'},Layer:{type:'object',properties:{
+  const root={$defs:{File:{type:'object','x-beamweft-input':'original-file'},Layer:{type:'object',properties:{
     image:{$ref:'#/$defs/File'},gain:{type:'number'},reference:{anyOf:[{$ref:'#/$defs/File'},{type:'null'}]},
   },required:['image']}}};
   const descriptor=objectInputSchema({type:'array',items:{$ref:'#/$defs/Layer'}},root);
-  assert.equal(descriptor.properties.image['x-laserclaw-input'],'original-file');
+  assert.equal(descriptor.properties.image['x-beamweft-input'],'original-file');
   assert(descriptor.properties.image.required);
   const sample=[{image:{attachment_id:3,sha256:'a'.repeat(64)},gain:0,reference:null},{image:{attachment_id:4},gain:-1}];
   assert.deepEqual(objectInputValue(descriptor,JSON.stringify(sample)).value,sample);

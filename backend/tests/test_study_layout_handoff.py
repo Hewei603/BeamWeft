@@ -194,14 +194,14 @@ def test_native_file_preserves_bound_and_derived_lineage_over_two_workspaces(db,
     derived = propagate(db, cid, {}, {"layout": {"run_id": parent, "port": "geometry", "registration": "Same frame"}})
     copy_id = begin_study_input(db, cid, derived, "layout")["model_basis"]["revision_id"]
     assert len({rid, direct, bound_id, parent, derived, copy_id}) == 6
-    archive = tmp_path / "source.lclaw"
+    archive = tmp_path / "source.beamweft"
     payload = client.get(f"/api/cases/{cid}/project-file", params={"revision_id": copy_id})
     assert payload.is_success
     archive.write_bytes(payload.content)
     for reception in ("receiver", "forwarded"):
         folder, meta = open_package(archive, tmp_path / reception)
         assert meta["opening_revision_id"] == copy_id
-        engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+        engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
         try:
             with Session(engine) as peer:
                 assert peer.get(ExperimentCase, other) is None
@@ -216,7 +216,7 @@ def test_native_file_preserves_bound_and_derived_lineage_over_two_workspaces(db,
                 assert begin_study_input(peer, cid, derived, "layout")["model_basis"]["revision_id"] == copy_id
                 assert begin_study_input(peer, cid, direct, "layout")["model_basis"]["revision_id"] == bound_id
                 if reception == "receiver":
-                    archive = tmp_path / "forwarded.lclaw"
+                    archive = tmp_path / "forwarded.beamweft"
                     write_package(peer, peer.get(ExperimentCase, cid), archive, Principal("local", "user"), copy_id)
         finally:
             engine.dispose()
@@ -230,10 +230,10 @@ def test_unmaterialized_inline_layout_transfers_its_own_component_bindings(db, c
              "tangential": {"radius_mm": .3, "wavefront": "waist", "m2": 1},
              "elements": [{"uid": "arm-rail", "name": "Spacer", "kind": "space", "length_mm": 4}], "parts": [part]}
     run = propagate(db, cid, {"layout": {**layout(), "incident_paths": [track]}})
-    archive = tmp_path / "inputs-only.lclaw"
+    archive = tmp_path / "inputs-only.beamweft"
     archive.write_bytes(client.get(f"/api/cases/{cid}/project-file").content)
     folder, _ = open_package(archive, tmp_path / "recipient")
-    engine = create_engine(URL.create("sqlite", database=str(folder/"laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder/"beamweft.db")))
     try:
         with Session(engine) as peer:
             assert read_project(peer, cid) is None

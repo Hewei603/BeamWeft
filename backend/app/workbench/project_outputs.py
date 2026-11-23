@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 from pydantic import Field
 
+from ..study_compat import MODEL_REVISION
 from ..study_api import Condition, Port, PublishedPort, StrictInput
 from .beam_source import MEDIUM_BEAM, PARAXIAL_BEAM, medium_beam_output
 from .projects import read_project
@@ -19,7 +20,6 @@ WAVELENGTH = Port(quantity="optics.vacuum-wavelength", label="真空波长", uni
 LAYOUT = Port(quantity="optics.ordered-layout.v1", label="工程光路模型", unit="unfolded-mm.v1", scale=1,
               shape="state", registration_label="本次计算使用的工程与参考系")
 VACUUM_NM = "optics.vacuum-wavelength.nm"
-MODEL_REVISION = "laserclaw.project-revision"
 PUMP_SITE = "optics.pump-sampling-location"
 REVISION_CONDITION = Condition(path="revision", label="工程版本", value_type="text")
 SITE_CONDITION = Condition(path="site", label="泵浦支路与样品段", value_type="text")

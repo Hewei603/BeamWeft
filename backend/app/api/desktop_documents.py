@@ -15,7 +15,7 @@ router = APIRouter(dependencies=[Depends(get_current_principal)])
 
 
 def available(request):
-    return (os.environ.get("LASERCLAW_DESKTOP_UI") == "1"
+    return (os.environ.get("BEAMWEFT_DESKTOP_UI") == "1"
             and request.client and request.client.host in {"::1", "127.0.0.1"}
             and request.url.hostname in {"127.0.0.1", "localhost", "::1"}
             and not get_settings().require_auth)

@@ -1,3 +1,4 @@
+import {inputWidget} from '../brand.js';
 import {useEffect, useMemo, useState} from 'react';
 import {workbenchApi} from '../api/workbench';
 import {orderedSelections, networkSelections} from './layoutSelections';
@@ -25,7 +26,7 @@ export function choiceValue(kind, raw) {
 export function useLayoutStudyChoices(caseId, definition, connections, manual, offeredState, ready) {
   const layouts=Object.entries(definition.input_ports || {}).filter(([,port])=>port.quantity==='optics.ordered-layout.v1' && port.shape==='state');
   const layoutKey=layouts.some(([name])=>name===definition.live_layout)?definition.live_layout:layouts.length===1?layouts[0][0]:null;
-  const enabled=ready && layoutKey && Object.values(definition.inputs.properties).some(field=>objectKinds.has(field['x-laserclaw-input']));
+  const enabled=ready && layoutKey && Object.values(definition.inputs.properties).some(field=>objectKinds.has(inputWidget(field)));
   const reference=enabled && connections[layoutKey];
   const supplied=reference
     ? (offeredState?.reference && sourceKey(reference)===sourceKey(offeredState.reference)?offeredState.value:null)

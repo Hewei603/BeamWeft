@@ -58,7 +58,7 @@ def run_one_backend(backend: str, repeats: int, top_k: int) -> dict[str, Any]:
         if not database_url.startswith("postgresql"):
             return {"backend": backend, "status": "skipped", "reason": "DATABASE_URL is not PostgreSQL"}
 
-    with tempfile.TemporaryDirectory(prefix=f"laserclaw-{backend}-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=f"beamweft-{backend}-") as tmp:
         tmp_path = Path(tmp)
         os.environ["DATABASE_URL"] = os.environ.get("DATABASE_URL") if backend == "pgvector" else f"sqlite:///{tmp_path / 'bench.db'}"
         os.environ["UPLOAD_DIR"] = str(tmp_path / "uploads")
@@ -117,7 +117,7 @@ def run_one_backend(backend: str, repeats: int, top_k: int) -> dict[str, Any]:
 
 
 def run_child(backend: str, repeats: int, top_k: int) -> dict[str, Any]:
-    env = {**os.environ, "LASERCLAW_BENCHMARK_CHILD": "1"}
+    env = {**os.environ, "BEAMWEFT_BENCHMARK_CHILD": "1"}
     completed = subprocess.run(
         [
             sys.executable,
@@ -148,7 +148,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
-    if os.environ.get("LASERCLAW_BENCHMARK_CHILD") == "1":
+    if os.environ.get("BEAMWEFT_BENCHMARK_CHILD") == "1":
         print(json.dumps(run_one_backend(args.backend or "sql_json", args.repeats, args.top_k), ensure_ascii=False))
         return
 

@@ -21,8 +21,60 @@ from app.models import (
 )
 from app.open_case import open_package
 from app.native_document import NativeDocument, fingerprint
+from app.storage_paths import DATABASE_NAME, PACKAGE_FORMAT, PREVIOUS_DATABASE, PREVIOUS_FORMAT, PREVIOUS_PROJECT_SUFFIX
 from app.workbench.measurement_view import InspectMeasurement, inspect_measurement
 from app.workbench.projects import OpticalProject, evaluate_project
+
+
+def test_previous_native_archive_resumes_local_edits_and_saves_as_a_new_project(client, tmp_path):
+    from app.api.cases import write_case_snapshot
+    from app.open_case import open_stream
+
+    cid = client.post("/api/cases", json={"title": "Calibration"}).json()["id"]
+    payload = client.get(f"/api/cases/{cid}/project-file").content
+    original = tmp_path / ("Calibration" + PREVIOUS_PROJECT_SUFFIX)
+    with zipfile.ZipFile(io.BytesIO(payload)) as source, zipfile.ZipFile(original, "w") as target:
+        for item in source.namelist():
+            contents = source.read(item)
+            if item == "manifest.json":
+                manifest = json.loads(contents)
+                assert manifest["package_format"]["name"] == PACKAGE_FORMAT
+                manifest["package_format"]["name"] = PREVIOUS_FORMAT
+                contents = json.dumps(manifest).encode()
+            target.writestr(item, contents)
+    original_hash = fingerprint(original)
+    doc = NativeDocument(original, tmp_path / "opened")
+    with doc.locked() as registry, original.open("rb") as stream:
+        folder = doc.workspace(registry, original_hash)
+        open_stream(stream, folder.parent, folder.name)
+    # Reproduce a working copy written before the file was renamed.
+    previous_db = folder / PREVIOUS_DATABASE
+    (folder / DATABASE_NAME).rename(previous_db)
+    with closing(sqlite3.connect(previous_db)) as db, db:
+        db.execute("UPDATE experiment_cases SET description=? WHERE id=?", ("local measurement", cid))
+    with doc.locked() as registry, original.open("rb") as stream:
+        assert doc.workspace(registry, original_hash) == folder
+        restored, marker = open_stream(stream, folder.parent, folder.name)
+        assert restored == folder and marker["case_id"] == cid
+    assert not (folder / DATABASE_NAME).exists()
+    engine = create_engine(URL.create("sqlite", database=str(previous_db)))
+    try:
+        def snapshot(path):
+            write_case_snapshot(engine, cid, Principal(actor="desktop", role="user"), path)
+
+        with pytest.raises(ValueError, match="另存为"):
+            doc.save(snapshot)
+        saved = tmp_path / "Calibration.beamweft"
+        Destination(saved, None).write(snapshot)
+    finally:
+        engine.dispose()
+    assert fingerprint(original) == original_hash
+    with zipfile.ZipFile(saved) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["package_format"]["name"] == PACKAGE_FORMAT
+    new_folder, _ = open_package(saved, tmp_path / "receiver")
+    with closing(sqlite3.connect(new_folder / DATABASE_NAME)) as db:
+        assert db.execute("SELECT description FROM experiment_cases WHERE id=?", (cid,)).fetchone() == ("local measurement",)
 
 
 def test_native_file_retains_identity_across_saves_and_detects_disk_changes(client, tmp_path):
@@ -30,8 +82,8 @@ def test_native_file_retains_identity_across_saves_and_detects_disk_changes(clie
     name = f"/api/cases/{case['id']}"
     assert case["goal"] == ""
     first = client.get(name + "/project-file")
-    assert first.status_code == 200 and ".lclaw" in first.headers["content-disposition"]
-    source = tmp_path / "shared.lclaw"
+    assert first.status_code == 200 and ".beamweft" in first.headers["content-disposition"]
+    source = tmp_path / "shared.beamweft"
     source.write_bytes(first.content)
     root = tmp_path / "workspaces"
     def open_native(path):
@@ -42,7 +94,7 @@ def test_native_file_retains_identity_across_saves_and_detects_disk_changes(clie
                 open_package(path, folder.parent)
         return document
     document = open_native(source)
-    peer_file = tmp_path / "copy.lclaw"
+    peer_file = tmp_path / "copy.beamweft"
     peer_file.write_bytes(source.read_bytes())
     assert open_native(peer_file).folder != document.folder
     client.put(name, json={"description":"补录"})
@@ -78,7 +130,7 @@ def test_file_opening_view_is_an_optical_version_in_its_own_snapshot(client, db,
     for revision in rows[:3]:
         response = client.get(url, params={"revision_id": revision.id})
         assert response.status_code == 200
-        file = tmp_path / "view.lclaw"
+        file = tmp_path / "view.beamweft"
         file.write_bytes(response.content)
         _, marker = open_package(file, tmp_path / "receiver")
         assert marker["opening_revision_id"] == revision.id
@@ -97,7 +149,7 @@ def test_file_opening_view_is_an_optical_version_in_its_own_snapshot(client, db,
         open_package(file, tmp_path / "receiver")
 
 
-@pytest.mark.parametrize("extension", ["lclaw", "zip"])
+@pytest.mark.parametrize("extension", ["beamweft", "zip"])
 def test_reopen_recovers_deleted_root_without_replacing_the_old_workspace(client, tmp_path, archive_case, extension):
     case, url, _, _ = archive_case
     package = tmp_path / f"source.{extension}"
@@ -116,7 +168,7 @@ def test_reopen_recovers_deleted_root_without_replacing_the_old_workspace(client
         return folder
 
     old = reopen()
-    if extension == "lclaw":
+    if extension == "beamweft":
         document = NativeDocument(package, root)
         with document.locked() as registry:
             assert document.workspace(registry, fingerprint(package)) == old
@@ -124,7 +176,7 @@ def test_reopen_recovers_deleted_root_without_replacing_the_old_workspace(client
         updated = client.get(url + "/project-file").content
         document.save(lambda destination: destination.write_bytes(updated))
     before = fingerprint(package)
-    with closing(sqlite3.connect(old / "laserclaw.db")) as db, db:
+    with closing(sqlite3.connect(old / "beamweft.db")) as db, db:
         db.execute("DELETE FROM experiment_cases WHERE id=?", (case,))
     remnant = old / "uploads" / "local-only-note.txt"
     remnant.write_text("Retain this local evidence")
@@ -133,18 +185,18 @@ def test_reopen_recovers_deleted_root_without_replacing_the_old_workspace(client
     assert restored != old and reopen() == restored
     assert remnant.read_text() == "Retain this local evidence"
     assert fingerprint(package) == before
-    if extension == "lclaw":
+    if extension == "beamweft":
         with pytest.raises(ValueError, match="已移动或已被修改"):
             document.save(lambda destination: destination.write_bytes(b"stale window"))
         assert fingerprint(package) == before
-    with closing(sqlite3.connect(restored / "laserclaw.db")) as db:
+    with closing(sqlite3.connect(restored / "beamweft.db")) as db:
         result = db.execute("SELECT description FROM experiment_cases WHERE id=?", (case,)).fetchone()
         assert result is not None
-        if extension == "lclaw":
+        if extension == "beamweft":
             assert result[0] == "Later disk snapshot"
         relative_file = db.execute("SELECT filepath FROM attachments LIMIT 1").fetchone()[0]
         assert Path(relative_file).is_relative_to(restored) and Path(relative_file).is_file()
-    with closing(sqlite3.connect(old / "laserclaw.db")) as db:
+    with closing(sqlite3.connect(old / "beamweft.db")) as db:
         assert db.execute("SELECT 1 FROM experiment_cases WHERE id=?", (case,)).fetchone() is None
 
 
@@ -212,7 +264,7 @@ def test_recipient_recomputes_and_continues_without_other_cases(client, db, tmp_
         assert all(secret not in history for secret in [b"Private conversation", b"private identity", b"private keeper", b"Unrelated lens"])
     folder, marker = open_package(package, tmp_path / "reception")
     assert marker["case_id"] == case and not marker["legacy"]
-    engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     try:
         with Session(engine) as peer:
             assert peer.query(ExperimentCase).count() == peer.query(AgentChatSession).count() == 1
@@ -290,7 +342,7 @@ def test_legacy_case_and_redistribution_keep_provenance(client, tmp_path, archiv
         out.writestr(manifest["attachments"][0]["bundle_path"], raw)
     folder, marker = open_package(legacy, tmp_path / "received")
     assert marker["legacy"]
-    engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     second = tmp_path / "second.zip"
     try:
         with Session(engine) as peer:

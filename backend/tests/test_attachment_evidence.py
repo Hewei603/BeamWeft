@@ -57,10 +57,10 @@ def test_saved_image_keeps_original_and_retired_number_survives_transfer(client,
     upload_path = Path(db.get(Attachment, free).filepath)
     assert client.delete(f"/api/attachments/{free}").status_code == 204 and not upload_path.exists()
     assert client.get(f"/api/attachments/{free}").status_code == 404
-    package = tmp_path / "saved.lclaw"
+    package = tmp_path / "saved.beamweft"
     package.write_bytes(client.get(f"/api/cases/{case}/project-file").content)
     workspace, _ = open_package(package, tmp_path / "restored")
-    engine = create_engine(URL.create("sqlite", database=str(workspace / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(workspace / "beamweft.db")))
     try:
         with Session(engine) as restored:
             original = restored.get(Attachment, frame)

@@ -28,6 +28,7 @@ def test_replaying_a_v1_receipt_keeps_its_original_result_and_requests_missing_m
     assert response.status_code == 200, response.text
     replay = response.json()
     assert replay["status"] == "needs_input" and "基底" in replay["message"]
+    assert replay["study_record"]["provider"] == replay["study_record"]["solver_receipt"]["provider"] == "BeamWeft"
     assert replay["study_record"]["input_origin"]["run_id"] == historical.id
     assert client.get(f"{base}/runs/{historical.id}").json()["output"] == original
 

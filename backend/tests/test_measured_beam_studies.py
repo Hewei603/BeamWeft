@@ -380,10 +380,10 @@ def test_registered_fit_inputs_cannot_be_relabelled_as_independent_camera_checks
     revision = trial["revision_id"]
     exported = client.get(root + "/project-file", params={"revision_id":revision})
     assert exported.status_code == 200
-    package = tmp_path / "fit-study.lclaw"
+    package = tmp_path / "fit-study.beamweft"
     package.write_bytes(exported.content)
     folder, _ = open_package(package, tmp_path / "receiver")
-    engine = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    engine = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     try:
         with Session(engine) as receiving:
             resumed = compare_reading(receiving, case, CompareBeam(**{**comparison,

@@ -2,15 +2,13 @@
 
 [English](README.md) · **简体中文**
 
-原名 LaserClaw。已有的 `.lclaw` 工程文件可以直接打开。
-
 **产品目标：通用的 Agentic 激光光学仿真软件。** 从实验人员的目标、器件、资料、测量与工作流程出发；常规换件、改布局、改参数和换目标通过工程数据与工具调用完成。能力不足时扩展独立物理模型与契约，不能用单个案例的隐藏假设代替通用能力。
 
-在 **1.9.0** 中，Agent 保存的光路可以直接在工程画布上继续编辑。你可以手动改元件、看光束复算，也可以让 Agent 读取当前尚未保存的草稿。多个方案可分别打开，历史答复仍能定位到当时的光路。
+在 **1.9.1** 中，Agent 保存的光路可以直接在工程画布上继续编辑。你可以手动改元件、看光束复算，也可以让 Agent 读取当前尚未保存的草稿。多个方案可分别打开，历史答复仍能定位到当时的光路。
 
 **用任务驱动的 AI Agent 组织激光实验设计、仿真和数据分析。** 新建工程只需名称，可直接搭建光路或放入测量原件。实验目标、器件资料和约束都可以稍后补充。Agent 读取信息、选择工具、检查真实计算结果、保存工程，并在需要时给出有单位和获取方法的补测问题。
 
-[下载 Windows 版](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.0/BeamWeft-1.9.0-Windows.zip) · [使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [1.9 更新说明](CHANGELOG.md)
+[下载 Windows 版](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.1/BeamWeft-1.9.1-Windows.zip) · [使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [1.9 更新说明](CHANGELOG.md)
 
 | 画布上的 1064 nm 谐振腔 | 选中凹面镜查看参数 |
 | --- | --- |
@@ -28,10 +26,6 @@
 - **数据与结论保持一致**：计划和报告使用最新工程，保留旧版本、工具输入输出、失败记录和未完成项。库存刷新保留借还、人工状态和器件身份。
 
 **模型范围。** 冷腔和高斯光束由 BeamWeft 的 Python/NumPy ABCD 内核计算，单程相干光场由基于傅里叶变换的标量菲涅耳传播方法计算。Rezonator 用作冷腔计算的外部对照。判断实际起振、输出功率或效率最优，还需要相应的增益、损耗和实验数据。增益饱和、空间热场和无膜端面形成的复合腔各自需要进一步建模和验证。验收案例中的 26 mm 腔长是在给定条件下得到的参考布局。
-
-![1064 nm cold-cavity mode](docs/releases/2.0.0/validation/field-radius.png)
-
-此前的开发验收用独立矩阵算法复核了两种晶体朝向下的 3,538 个稳定性扫描点，详见[历史验收报告](docs/releases/2.0.0/validation/review.html)。1.9 的回归测试也覆盖了[手工与 Agent 在画布上的交接](backend/tests/test_agent_canvas_outputs.py)。
 
 BeamWeft 是一款可在本地使用的光学实验工作台。你可以亲手搭建光路、运行物理计算、用测量数据检验预测，也可以把同一份工程交给 Agent 继续分析。
 
@@ -66,7 +60,7 @@ BeamWeft 是一款可在本地使用的光学实验工作台。你可以亲手�
 - **可打印方案**:腔设计结果带一张横向真实比例的**摆位图**(镜面朝向、晶体位置、冷腔基模包络与束腰),整页 `Ctrl+P` 即可存成 PDF 带进实验室——矢量图,白底黑字,导航与按钮自动隐藏。
 - **结构化 AI artifact**：保存 plan、troubleshooting、report、image analysis、物理模块结果等生成内容。
 - **Prompt/workflow 版本管理**：维护 active prompt 和 workflow version，支持可复现 AI 运行。
-- **工程交接**。保存为 `.lclaw`，在另一套 BeamWeft 中打开原件和历史光路，复核计算后继续编辑并写回工程文件。[打开工程文件](docs/GUIDE_V2.md#在另一台电脑上复核案例)
+- **工程交接**。保存为 `.beamweft`，在另一套 BeamWeft 中打开原件和历史光路，复核计算后继续编辑并写回工程文件。[打开工程文件](docs/GUIDE_V2.md#在另一台电脑上复核案例)
 - **项目级 ACL**：Case、知识检索、附件、生成、Agent task、Case module 和 bundle export 都遵循项目权限。
 - **RAG eval 与 benchmark**：提供脚本和 API，评估检索准确率、延迟、索引吞吐和 LLM JSON 可靠性。
 - **检索后端**：支持确定性的 `sql_json`、Chroma、pgvector，以及可选 cross-encoder reranking。
@@ -107,8 +101,6 @@ BeamWeft 有两类检索来源：
 
 1. **全局实验室知识**：安全手册、SOP、光学元件目录和实验室规则。所有 Case 都可以检索这类文档。
 2. **Case 专属知识**：Case 数据、附件、图像分析、历史报告和生成内容，用于补充当前实验上下文。
-
-[查看 LaserClaw 早期版本的知识检索界面](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
 
 ## Agent 工作流
 
@@ -296,7 +288,7 @@ ZHIPU_MODEL=glm-4-plus
 MOONSHOT_API_KEY=
 MOONSHOT_MODEL=moonshot-v1-8k
 
-DATABASE_URL=sqlite:///./laserclaw.db
+DATABASE_URL=sqlite:///./beamweft.db
 UPLOAD_DIR=./uploads
 MAX_UPLOAD_SIZE=52428800
 AUTO_CREATE_TABLES=true

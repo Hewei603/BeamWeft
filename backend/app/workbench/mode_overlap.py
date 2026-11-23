@@ -13,11 +13,11 @@ from .projects import read_project
 
 class SectionPair(StrictInput):
     plane_uid: str = Field(min_length=1, max_length=100, title="登记观察面",
-                           json_schema_extra={"x-laserclaw-input":"plane-uid"})
+                           json_schema_extra={"x-beamweft-input":"plane-uid"})
     first_beam_uid: str = Field(default="primary", min_length=1, max_length=100, title="第一束光",
-                                json_schema_extra={"x-laserclaw-input":"path-uid"})
+                                json_schema_extra={"x-beamweft-input":"path-uid"})
     second_beam_uid: str = Field(min_length=1, max_length=100, title="第二束光",
-                                 json_schema_extra={"x-laserclaw-input":"path-uid"})
+                                 json_schema_extra={"x-beamweft-input":"path-uid"})
 
     @model_validator(mode="after")
     def different_beams(self):

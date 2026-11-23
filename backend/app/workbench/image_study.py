@@ -82,6 +82,6 @@ IMAGE_MOMENTS = Study(
     chart=("原件列 / px","原件行 / px",[("二阶矩椭圆","ellipse.x","ellipse.y","lines")]),
     raster=RasterView(x="grid.x_edges",y="grid.y_edges",z="grid.means",label="平均像素读数",
                       x_label="原件列 / px",y_label="原件行 / px",y_down=True,equal_scale=True,pixel_window_input="window"),
-    accepts_inputs_from=(("LaserClaw", "1"),("LaserClaw", "2")),
+    accepts_inputs_from=(("BeamWeft", "1"),("BeamWeft", "2")),
     keywords=("camera", "detector", "intensity", "calibration", "相机", "光斑", "强度图", "标定"),
 )

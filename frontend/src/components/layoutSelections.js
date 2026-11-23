@@ -1,3 +1,4 @@
+import {inputWidget} from '../brand.js';
 export const portsOf = component => component.model.ports ?? (component.model.kind === 'coupler' ? ['1','2','3','4'] : ['1']);
 
 export function connectionAt(network, at) {
@@ -60,14 +61,14 @@ export function orderedSelections(layout, selectedPath) {
 // In a comparison the same object kind can serve different experimental roles.
 // A single canvas selection cannot supply both operands.
 export function studyFieldSelections(schema,selections) {
-  const fields=Object.entries(schema.properties).filter(([,field])=>selections[field['x-laserclaw-input']]);
+  const fields=Object.entries(schema.properties).filter(([,field])=>selections[inputWidget(field)]);
   const counts=new Map();
   for(const [,field] of fields) {
-    const kind=field['x-laserclaw-input'];
+    const kind=inputWidget(field);
     counts.set(kind,(counts.get(kind) || 0)+1);
   }
   return Object.fromEntries(fields.map(([key,field])=>{
-    const kind=field['x-laserclaw-input'],binding=selections[kind];
+    const kind=inputWidget(field),binding=selections[kind];
     if(counts.get(kind)===1)return [key,binding];
     const follow=field.default!=null?'方法默认':schema.required?.includes(key)?'请选择':'未指定';
     return [key,{...binding,label:field.title || key,current:field.default,follow}];

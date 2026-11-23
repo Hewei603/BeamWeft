@@ -183,7 +183,7 @@ def test_import_rejects_oversized_upload(client, monkeypatch):
     (".csv", "0,0\n1,0\n2,0.4\n3,0.8\n"),
 ])
 def test_data_loader_accepts_every_advertised_format(ext, content):
-    path = os.path.join(tempfile.gettempdir(), f"laserclaw_pc_test{ext}")
+    path = os.path.join(tempfile.gettempdir(), f"beamweft_pc_test{ext}")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(content)
     loaded = _load_xy_csv(path)

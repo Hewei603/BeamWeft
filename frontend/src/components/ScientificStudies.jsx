@@ -1,5 +1,5 @@
 import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import { providerLabel } from '../brand';
+import {inputWidget, isBuiltInProvider, providerLabel, sameProvider} from '../brand';
 import {workbenchApi} from '../api/workbench';
 import {API_BASE_URL} from '../api/client';
 import {localId} from '../api/localId';
@@ -124,7 +124,7 @@ export function ScientificStudyOutput({definition, output, fileEvidence, onWindo
   },[definition.raster]);
   const metrics=Object.entries(definition.metrics || {}).map(([path,label])=>[label,propertyValue(output,path),definition.output_ports?.[path]])
     .filter(([,value])=>value!=null);
-  const table=definition.name==='analyze_observation_planes' && definition.provider==='LaserClaw' && definition.version==='1'
+  const table=definition.name==='analyze_observation_planes' && isBuiltInProvider(definition.provider) && definition.version==='1'
     ? archivedSectionTable : definition.table;
   const rows=table && propertyValue(output,table[0]);
   const visible=useMemo(()=>{
@@ -241,7 +241,7 @@ export function ScientificStudyOutput({definition, output, fileEvidence, onWindo
     {Array.isArray(output.next_steps) && output.next_steps.filter(step=>typeof step==='string' && step && !notes.includes(step))
       .map((step,i)=><p key={i}>{step}</p>)}
     {!plotFirst && colorControl}
-    {(definition.view==='optics.paraxial-profile.v1' || (!definition.view && definition.provider==='LaserClaw'
+    {(definition.view==='optics.paraxial-profile.v1' || (!definition.view && isBuiltInProvider(definition.provider)
       && definition.name==='analyze_optical_system')) && output.planes?.tangential && output.planes?.sagittal
       ? <OpticalFieldView analysis={output}/> : chart && <ScientificPlot ref={plot} key={narrowRaster?'horizontal':'vertical'} {...chart} onViewport={canSelect || adaptiveGrid?setViewport:undefined}
         wheelZoom={Boolean(adaptiveGrid)} onResetViewport={adaptiveGrid?()=>setViewport(null):undefined}
@@ -490,7 +490,7 @@ function StudyForm({shelf,draftSlot,draftSource,caseId,defaultRevision,definitio
       const inputs=raw===null ? formInputs() : readObject();
       if(raw===null && alternatives.length && !choice)throw Error('请选择本次使用的输入。');
       if(raw===null)for(const [key,field] of Object.entries(schema.properties)) {
-        const kind=field['x-laserclaw-input'], control=layoutObjects.choices[kind];
+        const kind=inputWidget(field), control=layoutObjects.choices[kind];
         const value=choiceValue(kind,manualInputs[key]);
         if(control && active(key) && !connections[key] && value && !control.choices.some(item=>item.value===value))
           throw Error('「'+(field.title || key)+'」的原标识在所选光路中缺失，请重新选择。');
@@ -570,7 +570,7 @@ function StudyForm({shelf,draftSlot,draftSource,caseId,defaultRevision,definitio
       const inherited=fallback && (connections[fallback] || (values[fallback]?.trim() && values[fallback].trim()!=='null'));
       const inheritedTitle=inherited && (schema.properties[fallback]?.title || fallback);
       return <InputField key={name} name={name} field={field} value={values[name] ?? (inherited ? '' : defaults[name])} schema={schema} files={files}
-        choices={layoutObjects.choices[field['x-laserclaw-input']]?.choices} port={definition.input_ports?.[name]} required={name===choice || (fallback && field.default==null ? !inherited : schema.required?.includes(name))} inheritedTitle={inheritedTitle}
+        choices={layoutObjects.choices[inputWidget(field)]?.choices} port={definition.input_ports?.[name]} required={name===choice || (fallback && field.default==null ? !inherited : schema.required?.includes(name))} inheritedTitle={inheritedTitle}
         onChange={value=>setValues(prev=>({...prev,[name]:value}))}/>;
     }) :
       <div className="study-input"><label htmlFor="study-json-input">完整输入 JSON</label>
@@ -753,7 +753,7 @@ function StudyWorkspace({entryRef,caseId,draftScope,defaultRevision,canvas,sourc
   const draftSlot=definition && studyFormSlot(definition,formOrigin);
   const referenceName=reference?.run_id?'计算 #'+reference.run_id:reference?.revision_id?'工程 #'+reference.revision_id:'';
   const draftSource=originLabel || sourceRequest?.file?.filename || (referenceName && referenceName+' · '+(sourceRequest.label || reference.port));
-  const compatibleDraft=!expectedMethod || !definition || (expectedMethod.provider===definition.provider && expectedMethod.version===definition.version);
+  const compatibleDraft=!expectedMethod || !definition || (sameProvider(expectedMethod.provider, definition.provider) && expectedMethod.version===definition.version);
   const navigation={selected,sourceKeyChoice,matchingFields,chosenField,originalInputs,formOrigin,originLabel:draftSource,expectedMethod};
   const navigationText=JSON.stringify(navigation), navKey=JSON.stringify(navSlot);
   useLayoutEffect(()=>{
@@ -777,9 +777,9 @@ function StudyWorkspace({entryRef,caseId,draftScope,defaultRevision,canvas,sourc
   const archivedMethod=useStudyDefinition(caseId,historyName && historyName!==selected ? historyName : '',attempt);
   const lookup=historyName===selected ? selectedMethod : archivedMethod;
   const installed=record && lookup?.data?.version===record.definition.version &&
-    lookup.data.provider===record.definition.provider ? lookup.data : null;
+    sameProvider(lookup.data.provider, record.definition.provider) ? lookup.data : null;
   const successor=record && !installed && lookup?.data?.accepts_inputs_from?.some(([provider, version]) =>
-    provider === record.definition.provider && version === record.definition.version) ? lookup.data : null;
+    sameProvider(provider, record.definition.provider) && version === record.definition.version) ? lookup.data : null;
   const lookupError=selectedMethod?.error || (lookup?.error?.status!==404 ? lookup?.error : null);
   const records=history?.items || [];
   const offeredRecords=sourceRequest?.reference?.run_id && !records.some(s=>s.id===reference.run_id)

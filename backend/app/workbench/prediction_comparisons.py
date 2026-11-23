@@ -207,7 +207,7 @@ def compare_predictions(db, case_id, args, revision_id, task_id=None):
         raise ValueError("请选择两个不同的工程版本或快照。")
     recipe = args.model_copy(update={"revision_id": revision_id})
     models = read_project_inputs(db, case_id, [args.reference_revision_id, revision_id])
-    receipt = solver_receipt("compare_beam_predictions", "LaserClaw", "1", compute=_sample_model,
+    receipt = solver_receipt("compare_beam_predictions", "BeamWeft", "1", compute=_sample_model,
                              inputs=[OpticalProject.model_validate(r["project"]) for r in models.values()])
     identity = [recipe.model_dump(mode="json"), solver_cache_key(receipt)]
     key = "width_pair_v2:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()

@@ -412,7 +412,7 @@ def test_rezonator_export_matches_bundled_reference_calculation(design, rezonato
         assert exported['trip_type'] == 'SW'
         assert exported['elements'][0]['type'] == 'ElemFlatMirror'
         # Reconstruct directly from .rez element parameters and the upstream C++
-        # element definitions, without using LaserClaw's matrix constructors.
+        # element definitions, without using BeamWeft's matrix constructors.
         parts = []
         for item in exported['elements'][1:-1]:
             p = item['params']

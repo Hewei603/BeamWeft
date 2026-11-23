@@ -186,7 +186,7 @@ def _rebind_port(old, new, port, registry):
     new_port = port
     match = None
     if address:
-        if (previous["name"], previous["provider"]) != (following["name"], following["provider"]):
+        if (previous["name"], provider_display_name(previous["provider"])) != (following["name"], provider_display_name(following["provider"])):
             raise ValueError("这两个方法没有共同声明跨方法的结果行标识。请在替代结果中选择对应的物理量。")
         table, index, column, spec = address
         new_spec = following.get("row_outputs", {}).get(table, {})
@@ -196,7 +196,7 @@ def _rebind_port(old, new, port, registry):
             if declaration.get("identity_fields"):
                 return tuple(declaration["identity_fields"])
             entry = registry.get(definition["name"])
-            if entry and (entry[0].version, entry[1]) == (definition["version"], definition["provider"]):
+            if entry and (entry[0].version, entry[1]) == (definition["version"], provider_display_name(definition["provider"])):
                 installed = entry[0].row_outputs.get(table)
                 return installed.identity_fields if installed else ()
             return ()
@@ -307,7 +307,7 @@ def replay_study(bind, case_id, args, registry, task_id=None):
                 continue
             try:
                 entry = registry.get(step["name"])
-                if not entry or (entry[0].version, entry[1]) != (step["version"], step["provider"]):
+                if not entry or (entry[0].version, entry[1]) != (step["version"], provider_display_name(step["provider"])):
                     raise ValueError(f"缺少原计算使用的 {provider_display_name(step['provider'])} / {step['name']} v{step['version']}。")
                 study = entry[0]
                 links = {k: dict(v) for k, v in refs.items()}

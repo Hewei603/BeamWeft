@@ -3,7 +3,25 @@
 const buffered = new Map();
 
 export function draftStorageKey(server, caseId, scope, kind = 'optical') {
-  return scope ? ['laserclaw-' + kind + '-draft-v1', encodeURIComponent(server), caseId, scope].join(':') : null;
+  return scope ? ['beamweft-' + kind + '-draft-v1', encodeURIComponent(server), caseId, scope].join(':') : null;
+}
+
+export function previousDraftKey(key) {
+  return key?.startsWith('beamweft-') ? 'laserclaw-' + key.slice('beamweft-'.length) : null;
+}
+
+export function storedDraftText(storage, key, previous = previousDraftKey(key)) {
+  const current = storage.getItem(key);
+  if (current != null || !previous) return current;
+  const original = storage.getItem(previous);
+  if (original != null) {
+    // At quota, the only recoverable copy may still live under the earlier key.
+    try {
+      storage.setItem(key, original);
+      storage.removeItem(previous);
+    } catch { /* The original remains readable. */ }
+  }
+  return original;
 }
 
 export function bufferDraft(key, record) {
@@ -16,17 +34,18 @@ export function flushDraft(key) {
   buffered.delete(key);
 }
 
-export function readDraft(key) {
+export function readDraft(key, previous = previousDraftKey(key)) {
   if (!key) return null;
   if (buffered.has(key)) return buffered.get(key);
-  const text = window.sessionStorage.getItem(key);
+  const text = storedDraftText(window.sessionStorage, key, previous);
   if (text == null) return null;
   return JSON.parse(text);
 }
 
-export function clearDraft(key) {
+export function clearDraft(key, previous = previousDraftKey(key)) {
   if (!key) return;
   buffered.set(key, null);
+  if (previous) window.sessionStorage.removeItem(previous);
   window.sessionStorage.removeItem(key);
   buffered.delete(key);
 }

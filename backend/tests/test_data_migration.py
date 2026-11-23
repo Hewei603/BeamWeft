@@ -12,7 +12,7 @@ from app.data_migration import migrate_legacy_data
 
 def make_settings(tmp_path, data_dir):
     return SimpleNamespace(
-        database_url=f"sqlite:///{(data_dir / 'laserclaw.db').as_posix()}",
+        database_url=f"sqlite:///{(data_dir / 'beamweft.db').as_posix()}",
         upload_dir=str(data_dir / "uploads"),
         vector_store_dir=str(data_dir / "vector_store"),
     )
@@ -21,7 +21,7 @@ def make_settings(tmp_path, data_dir):
 def make_legacy_repo(tmp_path):
     repo = tmp_path / "repo"
     (repo / "backend").mkdir(parents=True)
-    (repo / "backend" / "laserclaw.db").write_bytes(b"legacy-db")
+    (repo / "backend" / "beamweft.db").write_bytes(b"legacy-db")
     (repo / "uploads").mkdir()
     (repo / "uploads" / "a.png").write_bytes(b"img")
     (repo / "backend" / "vector_store").mkdir()
@@ -37,19 +37,19 @@ def test_copies_all_three_when_target_empty(tmp_path):
 
     notes = migrate_legacy_data(settings, repo_root=repo)
 
-    assert (data_dir / "laserclaw.db").read_bytes() == b"legacy-db"
+    assert (data_dir / "beamweft.db").read_bytes() == b"legacy-db"
     assert (data_dir / "uploads" / "a.png").read_bytes() == b"img"
     assert (data_dir / "vector_store" / "index.bin").read_bytes() == b"idx"
     assert len(notes) == 3
     # Copy, not move: legacy files stay behind as a backup.
-    assert (repo / "backend" / "laserclaw.db").exists()
+    assert (repo / "backend" / "beamweft.db").exists()
 
 
 def test_never_overwrites_populated_target(tmp_path):
     repo = make_legacy_repo(tmp_path)
     data_dir = tmp_path / "data"
     (data_dir / "uploads").mkdir(parents=True)
-    (data_dir / "laserclaw.db").write_bytes(b"current-db")
+    (data_dir / "beamweft.db").write_bytes(b"current-db")
     (data_dir / "uploads" / "b.png").write_bytes(b"current-img")
     settings = make_settings(tmp_path, data_dir)
 
@@ -57,7 +57,7 @@ def test_never_overwrites_populated_target(tmp_path):
 
     # The populated target is the source of truth; stale in-tree data must not
     # resurrect over it after an update.
-    assert (data_dir / "laserclaw.db").read_bytes() == b"current-db"
+    assert (data_dir / "beamweft.db").read_bytes() == b"current-db"
     assert not (data_dir / "uploads" / "a.png").exists()
 
 
@@ -82,7 +82,7 @@ def test_no_legacy_data_is_a_no_op(tmp_path):
     settings = make_settings(tmp_path, data_dir)
 
     assert migrate_legacy_data(settings, repo_root=repo) == []
-    assert not (data_dir / "laserclaw.db").exists()
+    assert not (data_dir / "beamweft.db").exists()
 
 
 def test_memory_and_postgres_urls_skip_db_copy(tmp_path):
@@ -111,16 +111,16 @@ def test_interrupted_copy_leaves_no_wedge(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     # simulate a copy killed halfway: staging debris, target absent
-    (data_dir / "laserclaw.db.copying").write_bytes(b"half")
+    (data_dir / "beamweft.db.copying").write_bytes(b"half")
     (data_dir / "uploads.copying").mkdir()
     (data_dir / "uploads.copying" / "partial.png").write_bytes(b"x")
     settings = make_settings(tmp_path, data_dir)
 
     migrate_legacy_data(settings, repo_root=repo)
 
-    assert (data_dir / "laserclaw.db").read_bytes() == b"legacy-db"
+    assert (data_dir / "beamweft.db").read_bytes() == b"legacy-db"
     assert (data_dir / "uploads" / "a.png").read_bytes() == b"img"
-    assert not (data_dir / "laserclaw.db.copying").exists()
+    assert not (data_dir / "beamweft.db.copying").exists()
     assert not (data_dir / "uploads.copying").exists()
 
 
@@ -143,7 +143,7 @@ def test_target_equal_to_legacy_is_untouched(tmp_path):
     """Manual runs (uvicorn from backend/) still point at the in-tree db."""
     repo = make_legacy_repo(tmp_path)
     settings = SimpleNamespace(
-        database_url=f"sqlite:///{(repo / 'backend' / 'laserclaw.db').as_posix()}",
+        database_url=f"sqlite:///{(repo / 'backend' / 'beamweft.db').as_posix()}",
         upload_dir=str(repo / "uploads"),
         vector_store_dir=str(repo / "backend" / "vector_store"),
     )

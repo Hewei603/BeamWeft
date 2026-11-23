@@ -27,10 +27,10 @@ def blue_png():
 def main():
     backend = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(backend))
-    with tempfile.TemporaryDirectory(prefix="laserclaw-codex-acceptance-") as directory:
+    with tempfile.TemporaryDirectory(prefix="beamweft-codex-acceptance-") as directory:
         root = Path(directory)
         os.environ.update(
-            LASERCLAW_NO_DOTENV="1", DATABASE_URL="sqlite:///" + (root / "test.db").as_posix(),
+            BEAMWEFT_NO_DOTENV="1", DATABASE_URL="sqlite:///" + (root / "test.db").as_posix(),
             AGENT_SETTINGS_FILE=str(root / "settings.json"), UPLOAD_DIR=str(root / "uploads"),
             VECTOR_STORE_DIR=str(root / "vectors"), AI_PROVIDER="codex_exec", REQUIRE_AUTH="false",
             EMBEDDING_PROVIDER="local", LITERATURE_PROVIDERS="mock",

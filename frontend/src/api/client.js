@@ -1,7 +1,9 @@
 import axios from 'axios';
 
-export const openedCase = globalThis.document?.querySelector('meta[name="laserclaw-case-copy"]')?.content;
-const nativeTag = globalThis.document?.querySelector('meta[name="laserclaw-native-file"]');
+export const openedCase = globalThis.document?.querySelector('meta[name="beamweft-case-copy"]')?.content;
+const nativeTag = globalThis.document?.querySelector('meta[name="beamweft-native-file"]');
+export const nativeFileId = nativeTag?.content;
+export const nativeRequiresSaveAs = nativeTag?.dataset.saveAs === 'true';
 export const nativeFileSource = nativeTag?.dataset.path ? {
   caseId: nativeTag.content, label: nativeTag.dataset.label, path: nativeTag.dataset.path,
 } : null;

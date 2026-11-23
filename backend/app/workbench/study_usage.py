@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import literal, select
 from sqlalchemy.orm import Session
 
+from ..study_compat import port_conditions
 from ..models import Attachment, GeneratedContent
 from ..study_api import StrictInput
 from .project_outputs import FrozenProjectOutputs
@@ -35,7 +36,7 @@ def _port_change(previous, current, port):
     old, new = (outputs.get(port) for outputs in (previous, current))
     if old is None or new is None:
         return {"state": "unavailable", "missing": "previous" if old is None else "replacement"}
-    left, right = old["port"], new["port"]
+    left, right = port_conditions(old["port"]), port_conditions(new["port"])
     old_conditions = left.get("condition_values", {})
     new_conditions = right.get("condition_values", {})
     rules = {**left.get("conditions", {}), **right.get("conditions", {})}

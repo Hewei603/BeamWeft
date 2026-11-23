@@ -193,7 +193,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="beamweft-caustic-validation-") as folder:
         lab = Path(folder)
         os.environ.update(
-            LASERCLAW_NO_DOTENV="1",
+            BEAMWEFT_NO_DOTENV="1",
             DATABASE_URL="sqlite:///" + (lab / "case.db").as_posix(),
             UPLOAD_DIR=str(lab / "uploads"),
             VECTOR_STORE_DIR=str(lab / "vectors"),

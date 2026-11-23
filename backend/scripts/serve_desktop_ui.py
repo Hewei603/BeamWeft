@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.storage_paths import library_data_root
 from app.desktop_ui import DesktopFrontend, desktop_assets, name_desktop_console
 
 
@@ -19,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=5173)
     args = parser.parse_args()
-    data_root = Path(os.environ.get("LASERCLAW_DATA_DIR") or Path.home() / "LaserClaw-Data")
+    data_root = library_data_root()
     name_desktop_console("BeamWeft Web")
     api_origin = escape(os.environ.get("BEAMWEFT_API_ORIGIN", "http://127.0.0.1:8000"), quote=True)
     ui = DesktopFrontend(desktop_assets(data_root), head=f'<meta name="beamweft-api-origin" content="{api_origin}">')

@@ -222,12 +222,12 @@ def test_native_project_can_resume_frozen_diffraction_in_an_independent_receiver
                        {"layout": layout(first_part, .32), "samples": 128, "window_mm": 3.5})
     saved = result["study_record"]["id"]
     package = client.get(f"/api/cases/{case_id}/project-file")
-    assert package.status_code == 200 and ".lclaw" in package.headers["content-disposition"]
-    file = tmp_path / "衍射工程.lclaw"
+    assert package.status_code == 200 and ".beamweft" in package.headers["content-disposition"]
+    file = tmp_path / "衍射工程.beamweft"
     file.write_bytes(package.content)
     folder, marker = open_package(file, tmp_path / "independent")
     assert marker["case_id"] == case_id
-    receiver = create_engine(URL.create("sqlite", database=str(folder / "laserclaw.db")))
+    receiver = create_engine(URL.create("sqlite", database=str(folder / "beamweft.db")))
     try:
         with Session(receiver) as peer:
             archived = peer.get(GeneratedContent, saved)

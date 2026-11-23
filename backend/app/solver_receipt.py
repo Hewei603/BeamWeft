@@ -15,7 +15,7 @@ import numpy
 import scipy
 from pydantic import BaseModel
 
-from .version import APP_NAME, APP_VERSION
+from .version import APP_NAME, APP_VERSION, provider_display_name
 
 
 def _digest(value):
@@ -150,7 +150,7 @@ def _implementation(provider, entries):
         identities = [_entry_identity(entry) for entry in entries if entry is not None]
     except (TypeError, ValueError):
         identities = []
-    package = _APPLICATION["source_sha256"] if provider == "LaserClaw" else _provider_files(provider)
+    package = _APPLICATION["source_sha256"] if provider == APP_NAME else _provider_files(provider)
     signatures = [digest for digest, _ in identities]
     digest = _digest([package, signatures]) if package or any(signatures) else None
     frozen = bool(identities and all(known for _, known in identities))
@@ -184,7 +184,7 @@ def _prescriptions(value):
     from .workbench.device_laws import Prescription
 
     if isinstance(value, Prescription):
-        yield value.study, value.provider, value.version
+        yield value.study, provider_display_name(value.provider), value.version
     elif isinstance(value, BaseModel):
         for field in _device_fields(type(value)):
             yield from _prescriptions(getattr(value, field))
@@ -210,7 +210,8 @@ def _device_identity(method, provider, version):
 def solver_receipt(method, provider, version, *, compute=None, related=(), inputs=None, devices=(), contract=None,
                    scope=None):
     """Record an installed implementation and its declared device providers; never stamp an old result on read."""
-    keys = {(d["method"], d["provider"], d["version"]) for d in devices}
+    provider = provider_display_name(provider)
+    keys = {(d["method"], provider_display_name(d["provider"]), d["version"]) for d in devices}
     if inputs is not None:
         keys.update(_prescriptions(inputs))
     dependencies = [_device_identity(*key) for key in sorted(keys)]

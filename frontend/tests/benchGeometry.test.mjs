@@ -11,7 +11,7 @@ import { groupPlotLabels } from '../src/components/plotLabels.js';
 
 test('a reference and a probe can use independent defaults even while another path is selected on the canvas', () => {
   const selections=orderedSelections({incident_paths:[{uid:'arm',name:'Incoming path'}]},'arm');
-  const selector={'x-laserclaw-input':'path-uid'};
+  const selector={'x-beamweft-input':'path-uid'};
   const properties={reference:{...selector,title:'Reference path',default:'primary'},
     probe:{...selector,title:'Probe path'}, optional:{...selector,title:'Optional comparison path',default:null}};
   const fields=studyFieldSelections({properties,required:['probe']},selections);

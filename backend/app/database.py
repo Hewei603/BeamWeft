@@ -8,7 +8,7 @@ from sqlalchemy.schema import CreateIndex
 
 from .config import get_settings
 
-logger = logging.getLogger("laserclaw.database")
+logger = logging.getLogger("beamweft.database")
 
 settings = get_settings()
 

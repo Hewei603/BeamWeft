@@ -2,15 +2,13 @@
 
 **English** · [简体中文](READMEcn.md)
 
-Formerly LaserClaw. Existing `.lclaw` project files open directly.
-
 **Product goal: general-purpose agentic laser and optical simulation.** Routine changes to components, layouts, parameters and experimental goals belong in project data and tool calls. New physics capabilities require independent model contracts; a single case must not dictate the entire application.
 
-In **1.9.0**, optical layouts saved by the Agent open in the same editor you use to build them by hand. Edit a component, see the recomputed beam, and ask the Agent to analyze your current draft. Saved alternatives and historical revisions remain available for comparison.
+In **1.9.1**, optical layouts saved by the Agent open in the same editor you use to build them by hand. Edit a component, see the recomputed beam, and ask the Agent to analyze your current draft. Saved alternatives and historical revisions remain available for comparison.
 
-**A task-led AI Agent for laser experiment design, simulation and measurement analysis.** Start a project with a name, build its optical layout or add measured data, and save an editable `.lclaw` file for another workstation. The Agent chooses tools, checks real numerical results, saves editable optical projects and asks actionable measurement questions when information is missing.
+**A task-led AI Agent for laser experiment design, simulation and measurement analysis.** Start a project with a name, build its optical layout or add measured data, and save an editable `.beamweft` file for another workstation. The Agent chooses tools, checks real numerical results, saves editable optical projects and asks actionable measurement questions when information is missing.
 
-[Download for Windows](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.0/BeamWeft-1.9.0-Windows.zip) · [User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [1.9 release notes](CHANGELOG.md)
+[Download for Windows](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.1/BeamWeft-1.9.1-Windows.zip) · [User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [1.9 release notes](CHANGELOG.md)
 
 | 1064 nm resonator on the canvas | Inspecting the concave mirror |
 | --- | --- |
@@ -28,10 +26,6 @@ These two screenshots show the same example. Selecting a mirror reveals the beam
 - **Consistent current results**: plans and reports use the latest project while preserving historical designs, raw tool traces, partial results and failures. Inventory refresh preserves identities, loans and manual condition records.
 
 **Model scope.** Cold-cavity and Gaussian beam calculations use BeamWeft's Python/NumPy ABCD solver. The single-pass coherent field calculation uses scalar Fresnel propagation with FFTs. Rezonator serves as an external reference for cold-cavity checks. Predicting actual lasing, output power or maximum efficiency requires gain and loss models and measurements beyond geometric stability and assumed thermal-lens scans. Modeling gain saturation, spatially varying thermal fields or compound cavities formed by uncoated faces requires additional inputs and validation. The acceptance case reports its layout together with those conditions.
-
-![1064 nm cold-cavity mode](docs/releases/2.0.0/validation/field-radius.png)
-
-An earlier development review checked 3,538 points across two crystal-orientation stability maps with an independent matrix implementation. The [historical report](docs/releases/2.0.0/validation/review.html) records that experiment. The 1.9 regression suite also covers [manual and Agent canvas handoffs](backend/tests/test_agent_canvas_outputs.py).
 
 BeamWeft is a local-first optical workbench. You can build a layout and run its physics tools by hand, compare predictions with measurements, and ask the Agent to work in the same project.
 
@@ -64,7 +58,7 @@ BeamWeft is a local-first optical workbench. You can build a layout and run its 
 - **Printable plans**: cavity design results include a to-scale **layout diagram** (mirror orientation, crystal position, cold-cavity mode envelope and waist); `Ctrl+P` on any case page exports a lab-ready PDF — vector graphics, black on white, navigation and controls hidden.
 - **Structured AI artifacts** saved as versioned generated content.
 - **Prompt/workflow versioning** for reproducible AI runs.
-- **Portable projects** preserve original files, optical revisions and workbench tool records. Open the `.lclaw` file with `Launch-BeamWeft.bat` on the receiving workstation. The launcher also accepts legacy ZIP exports.
+- **Portable projects** preserve original files, optical revisions and workbench tool records. Open the `.beamweft` file with `Launch-BeamWeft.bat` on the receiving workstation. The launcher also accepts legacy ZIP exports.
 - **Project-level ACL** across cases, knowledge search, attachments, generation, Agent tasks, case modules, and bundle export.
 - **RAG evals and benchmarks** for retrieval quality, latency, indexing throughput, and JSON reliability.
 - **Retrieval backends** including deterministic `sql_json`, Chroma, pgvector, and optional cross-encoder reranking.
@@ -105,8 +99,6 @@ BeamWeft uses two retrieval tiers:
 
 1. **Global lab knowledge**: safety manuals, SOPs, optical component catalogs, and lab-wide operating rules.
 2. **Case knowledge**: case data, attachments, image analysis, prior reports, and generated artifacts linked to the current case.
-
-[View the retrieval interface from the original LaserClaw release](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
 
 ## Agent Workflow
 
@@ -298,7 +290,7 @@ ZHIPU_MODEL=glm-4-plus
 MOONSHOT_API_KEY=
 MOONSHOT_MODEL=moonshot-v1-8k
 
-DATABASE_URL=sqlite:///./laserclaw.db
+DATABASE_URL=sqlite:///./beamweft.db
 UPLOAD_DIR=./uploads
 MAX_UPLOAD_SIZE=52428800
 AUTO_CREATE_TABLES=true

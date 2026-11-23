@@ -488,7 +488,7 @@ def scan_system_2d(config):
             maps[key].append(row[key])
     invalid = sum(map(len, issues.values()))
     return {**_scan_summary(len(xs)*len(ys), invalid, 0, next(iter(issues), None)),
-            "solver_receipt": solver_receipt("scan_optical_system_2d", "LaserClaw", "2",
+            "solver_receipt": solver_receipt("scan_optical_system_2d", "BeamWeft", "2",
             compute=scan_system_2d, inputs=scan.system),
             "x": xs, "y": ys, "x_axis": scan.x.model_dump(), "y_axis": scan.y.model_dump(),
             "maps": maps, "invalid_groups": [{"message": reason, "cells": cells} for reason, cells in issues.items()],
@@ -688,7 +688,7 @@ def evaluated_devices(elements, wavelength_nm):
         if recipe is not None:
             transfer = recipe.evaluate("ray_matrix", wavelength_nm, element.length_mm)
             records.append({"element_uid": element.uid, "element_index": index, "wavelength_nm": wavelength_nm,
-                            "prescription": recipe.model_dump(), **transfer})
+                            "prescription": recipe.installed_prescription(), **transfer})
     return records
 
 
@@ -902,7 +902,7 @@ def analyze_system(config: OpticalSystem | dict, *, profile=True, stamp=True) ->
     if system.mode != "single_pass":
         result["stable_both_planes"] = all(p["stable"] for p in result["planes"].values())
     if stamp:
-        result["solver_receipt"] = solver_receipt("paraxial_abcd", "LaserClaw", "1", compute=analyze_system, inputs=system)
+        result["solver_receipt"] = solver_receipt("paraxial_abcd", "BeamWeft", "1", compute=analyze_system, inputs=system)
         if readings := material_index_readings([("primary", system)]):
             result["material_indices"] = readings
     return result
@@ -946,7 +946,7 @@ def scan_system(config: OpticalScan | dict) -> dict:
     span = scan.stop - scan.start
     step = span/(scan.count-1) if math.isfinite(span) else scan.stop/(scan.count-1) - scan.start/(scan.count-1)
     return {**_scan_summary(len(rows), len(invalid_rows), partial, invalid_rows[0]["message"] if invalid_rows else None),
-            "solver_receipt": solver_receipt("scan_optical_system", "LaserClaw", "2", compute=scan_system, inputs=scan.system),
+            "solver_receipt": solver_receipt("scan_optical_system", "BeamWeft", "2", compute=scan_system, inputs=scan.system),
             "mode": scan.system.mode, "parameter": scan.parameter, "element": element.name, "points": rows,
             **({"warnings":[APERTURE_REFERENCE]} if any(e.clear_aperture for e in scan.system.elements) else {}),
             "stable_intervals_sampled": intervals, "step": step if math.isfinite(step) else None,

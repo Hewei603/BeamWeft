@@ -13,12 +13,11 @@ import sys
 import time
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "backend"))
+from app.storage_paths import database_path, default_library_root, library_data_root
+
 PROBE = "/.well-known/beamweft-library"
 OCCUPIED = 4
-
-
-def library_data_root():
-    return Path(os.environ.get("LASERCLAW_DATA_DIR") or Path.home() / "LaserClaw-Data").resolve()
 
 
 def build_identity(repo, data_root=None, api_port=8000, ui_port=5173):
@@ -81,13 +80,13 @@ def launch_library(identity, api_port, ui_port, data_root, *, creationflags=None
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if creationflags is None else creationflags
     data_root = data_root.resolve()
     api_origin = f"http://127.0.0.1:{api_port}"
-    env = {**os.environ, "BEAMWEFT_LIBRARY_INSTANCE": identity, "LASERCLAW_DESKTOP_UI": "1",
-           "LASERCLAW_DATA_DIR": str(data_root), "DATABASE_URL": "sqlite:///" + (data_root / "laserclaw.db").as_posix(),
+    env = {**os.environ, "BEAMWEFT_LIBRARY_INSTANCE": identity, "BEAMWEFT_DESKTOP_UI": "1",
+           "BEAMWEFT_DATA_DIR": str(data_root), "DATABASE_URL": "sqlite:///" + database_path(data_root).as_posix(),
            "UPLOAD_DIR": str(data_root / "uploads"), "VECTOR_STORE_DIR": str(data_root / "vector_store"),
            "AUTO_CREATE_TABLES": "true", "BEAMWEFT_API_ORIGIN": api_origin, "VITE_API_URL": api_origin}
     if ui_port != 5173:
         env["CORS_ORIGINS"] = json.dumps([f"http://127.0.0.1:{ui_port}", f"http://localhost:{ui_port}"])
-    if data_root != (Path.home() / "LaserClaw-Data").resolve():
+    if data_root != default_library_root():
         # A separately selected library must not silently acquire an old checkout's data.
         env.setdefault("MIGRATE_LEGACY_ON_START", "false")
     # Serialize the check and start across simultaneous double-clicks. A crashed launcher releases the lock.

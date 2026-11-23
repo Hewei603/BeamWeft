@@ -25,7 +25,7 @@ def test_compressed_scientific_grid_round_trips_without_persisting_rejected_writ
     study = "propagate_coherent_field"
     layout = {"system":{"mode":"single_pass","wavelength_nm":780,"input_radius_mm":.3,
                         "elements":[{"uid":"s","name":"Air","kind":"space","length_mm":10}]}}
-    data = {"provider":"LaserClaw", "version":"2", "inputs":{"layout":layout,"samples":128,"window_mm":2}}
+    data = {"provider":"BeamWeft", "version":"2", "inputs":{"layout":layout,"samples":128,"window_mm":2}}
     gzip = {"Accept-Encoding":"gzip"}
     preview = client.post(f"{root}/preview/{study}",json=data,headers=gzip)
     assert preview.status_code == 200 and preview.headers["content-encoding"] == "gzip"
@@ -52,7 +52,7 @@ def test_live_state_is_case_scoped_read_only_and_resolved_like_an_archived_conne
     space = {"uid": "s", "name": "空气", "kind": "space", "length_mm": 6}
     system = {"mode": "single_pass", "wavelength_nm": 780, "input_radius_mm": .4,
               "elements": [{**space, "clear_aperture": {"shape":"ellipse","width_mm":.6}}]}
-    data = {"provider":"LaserClaw","version":"2","inputs":{"layout":{"system":system},"window_mm":2,"samples":128}}
+    data = {"provider":"BeamWeft","version":"2","inputs":{"layout":{"system":system},"window_mm":2,"samples":128}}
     source = client.post(f"{root}/run/{name}", json=data)
     assert source.status_code == 200, source.text
     producer = source.json()["study_record"]["id"]

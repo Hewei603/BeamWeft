@@ -62,7 +62,7 @@ def setup(db, compute=aperture, *, axes=None, mount="screw"):
     method = Study("test_alignment","Aperture","1","Frozen response",Rig,compute,
                    output_ports={"light":Port(quantity="light",unit="W",scale=1,label="Signal",available_on_partial=True),
                                  "travel":Port(quantity="length",unit="mm",scale=.001,label="Travel",available_on_partial=True)})
-    producer = "LaserClaw"
+    producer = "BeamWeft"
     registry = {method.name:(method,producer)}
     base = run_study(db.get_bind(),case.id,method,producer,{"x":0,"mount":{"kind":mount,"setting":0}})
     recipe = StudySearch(run_id=base["study_record"]["id"],

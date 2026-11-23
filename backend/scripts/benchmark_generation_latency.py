@@ -51,7 +51,7 @@ def has_expected_shape(mode: str, content: dict[str, Any]) -> bool:
 
 
 async def run_benchmark(modes: list[str], repeats: int) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="laserclaw-generation-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="beamweft-generation-") as tmp:
         tmp_path = Path(tmp)
         os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path / 'bench.db'}"
         os.environ["UPLOAD_DIR"] = str(tmp_path / "uploads")

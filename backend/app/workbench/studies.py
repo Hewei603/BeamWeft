@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from ..models import AgentTask, GeneratedContent
 from ..solver_receipt import solver_cache_key, solver_receipt
 from ..version import provider_display_name
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from ..study_compat import EARLIER_STUDY_GROUP
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 from ..study_api import Condition, MissingStudyInput, OriginalFile, Port, PublishedPort, ResultReference, RowOutputs, StrictInput, Study
 from ..physics.caustic import UnresolvedCaustic, fit_caustic
@@ -89,6 +90,7 @@ class StudyFailure(RuntimeError):
 class StudyInvocation(StrictInput):
     version: str
     provider: str
+    _canonical_owner = field_validator("provider")(provider_display_name)
     inputs: dict
     connections: dict[str, InputSource] = Field(default_factory=dict)
     reuse_inputs_from: int | None = Field(default=None, gt=0, description="Use saved inputs and references from the same method and provider, or a declared compatible earlier version. Leave inputs and connections empty.")
@@ -305,7 +307,7 @@ BUILTINS = (
           chart=("轴向位置 / mm", "光束半径 / mm", [("拟合用测点", "data.z_mm", "data.radius_mm", "markers"),
                                               ("留出测点", "data.held_z_mm", "data.held_radius_mm", "markers"),
                                               ("拟合", "data.curve_z_mm", "data.curve_radius_mm", "lines")]),
-          accepts_inputs_from=(("LaserClaw", "4"),),
+          accepts_inputs_from=(("BeamWeft", "4"),),
           input_ports={"z_mm": POSITION, "radius_mm": RADIUS, "wavelength_nm": WAVELENGTH},
           paired_inputs=(("z_mm", "radius_mm"), ("z_mm", "radius_mm", "acquisition_ids")),
           output_ports=BEAM_FIT_PORTS, output_requirements={**{k: ("z_mm","radius_mm","wavelength_nm","medium_n")
@@ -323,7 +325,7 @@ BUILTINS = (
           input_ports={"lambda1_nm": WAVELENGTH, "lambda2_nm": WAVELENGTH},
           output_ports={"matched_wavelength_nm": WAVELENGTH}),
     Study("compute_coating", "镀膜光谱", "2", "按给定的入射介质、基底及有序膜层求解反射与透射；也可采用实测曲线或标称模型。", Coating,
-          lambda args: run_coating_tmm(args.config), accepts_inputs_from=(("LaserClaw", "1"),),
+          lambda args: run_coating_tmm(args.config), accepts_inputs_from=(("BeamWeft", "1"),),
           table=("query_results", {"wavelength_nm": "波长 / nm", "R": "反射率 R", "T": "透射率 T",
                                    "A": "膜层吸收率 A", "reason": "适用范围"})),
     Study("analyze_optical_system", "近轴光路传播与腔模", "2", "计算双轴 ABCD 矩阵、单程平行入射几何焦点或腔本征模。几何传输可留空入射束径；光斑和输出光束状态需要入射场条件。末端参考面在空气中。", PropagationStudySystem, _propagate,
@@ -346,7 +348,7 @@ def _installed_study_entries():
     # same export to old and new hosts during migration, while genuine name collisions stay visible.
     installed = entry_points()
     current = installed.select(group="beamweft.studies.v1")
-    legacy = installed.select(group="laserclaw.studies.v1")
+    legacy = installed.select(group=EARLIER_STUDY_GROUP)
 
     def export(entry):
         return entry.dist, entry.name, entry.value
@@ -357,7 +359,7 @@ def _installed_study_entries():
 
 def discover_studies(reserved=(), plugins=None):
     """Keep installed packages separate from user-supplied project files. Ambiguous names have no winner."""
-    studies = {s.name: (s, "LaserClaw") for s in BUILTINS}
+    studies = {s.name: (s, "BeamWeft") for s in BUILTINS}
     issues = []
     plugins = _installed_study_entries() if plugins is None else list(plugins)
     counts = Counter(p.name for p in plugins)
@@ -686,7 +688,7 @@ def _prior_inputs(db, case_id, study, provider, run_id):
     if row is None:
         raise ValueError("在当前工程中找不到要复用输入的计算记录。")
     name, owner, version, inputs, connections, fields, aliases, captured = row
-    if name != study.name or ((owner, version) != (provider, study.version) and (owner, version) not in study.accepts_inputs_from):
+    if name != study.name or not study.accepts_saved_inputs(provider, owner, version):
         raise ValueError("当前方法未声明兼容这份记录的输入定义、单位和参考面。请核对历史输入后建立新的计算。")
     if not isinstance(inputs, dict):
         raise ValueError("历史记录缺少可复用的输入参数。可以继续查看已存输出，核对条件后另行计算。")
@@ -817,10 +819,9 @@ def _verified_native_grid(db, case_id, run_id, registry):
         raise UnpublishedOutput("当前工程中找不到这份已登记全分辨率网格的计算。")
     definition, frozen, digest, originals, connections, saved = record
     installed = registry.get(definition["name"])
-    archived_method = (definition["provider"], definition["version"])
-    if not installed or not installed[0].native_grid or (
-            (installed[1], installed[0].version) != archived_method and archived_method not in installed[0].accepts_inputs_from):
-        raise ValueError(f"导出需要安装 {definition['name']}（{definition['provider']}，版本 {definition['version']}）或声明兼容其输入的版本。")
+    if not installed or not installed[0].native_grid or not installed[0].accepts_saved_inputs(
+            installed[1], definition["provider"], definition["version"]):
+        raise ValueError(f"导出需要安装 {definition['name']}（{provider_display_name(definition['provider'])}，版本 {definition['version']}）或声明兼容其输入的版本。")
     study = installed[0]
     with ExitStack() as files:
         model = study.inputs.model_validate(frozen, by_name=True, by_alias=True)

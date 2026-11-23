@@ -5,9 +5,10 @@ from functools import cached_property
 import math
 from typing import Annotated, BinaryIO, Literal, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import field_validator, BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from pydantic.dataclasses import dataclass
 
+from .study_compat import condition_names, port_conditions, study_input_schema
 from .version import provider_display_name
 
 
@@ -21,7 +22,7 @@ class MissingStudyInput(ValueError):
 
 class OriginalFile(StrictInput):
     """Case-local archived bytes. The host opens a fresh verified stream for each input."""
-    model_config = ConfigDict(json_schema_extra={"x-laserclaw-input": "original-file"})
+    model_config = ConfigDict(json_schema_extra={"x-beamweft-input": "original-file"})
     attachment_id: int = Field(gt=0, description="Archived attachment in this case.")
     sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$",
                               description="Optional expected SHA-256. Execution records the verified digest.")
@@ -123,6 +124,11 @@ class Port(StrictInput):
     registration_label: str | None = Field(default=None, min_length=1)
     inherit_conditions_from: str | None = Field(default=None, description="On an output, carry documented operating conditions from this bound input.")
     alternate_units: dict[str, Annotated[float, Field(gt=0)]] = Field(default_factory=dict, description="Additional source units with their factor to the same canonical unit.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_archived_conditions(cls, value):
+        return port_conditions(value)
 
     @model_validator(mode="after")
     def state_scale(self):
@@ -237,6 +243,9 @@ class ConditionMatch(StrictInput):
     keys: dict[str, str] = Field(min_length=1, description="Condition identifiers and readable captions. Conflicting known values require a documented transfer on the other input.")
 
 
+    _condition_names = field_validator("keys", mode="before")(condition_names)
+
+
 class ElementLaw(StrictInput):
     """Expose a deterministic study as a parameterized device on an optical path."""
     representation: Literal["ray_matrix", "scattering"]
@@ -302,7 +311,7 @@ class Study:
     def text_column_inputs(self):
         """A declared sequence of plain strings can take labels directly from an original table."""
         fields = {}
-        for key, prop in self.inputs.model_json_schema()["properties"].items():
+        for key, prop in study_input_schema(self.inputs)["properties"].items():
             if key in self.input_ports:
                 continue
             variants = [v for v in prop.get("anyOf", [prop]) if v.get("type") != "null"]
@@ -318,8 +327,8 @@ class Study:
     @cached_property
     def layout_selectors(self):
         return tuple(dict.fromkeys(
-            field["x-laserclaw-input"] for field in self.inputs.model_json_schema()["properties"].values()
-            if "x-laserclaw-input" in field
+            field["x-beamweft-input"] for field in study_input_schema(self.inputs)["properties"].values()
+            if "x-beamweft-input" in field
         ))
 
     @cached_property
@@ -330,8 +339,8 @@ class Study:
 
     @cached_property
     def uses_original_files(self):
-        schema = self.inputs.model_json_schema()
-        return any(item.get("x-laserclaw-input") == "original-file"
+        schema = study_input_schema(self.inputs)
+        return any(item.get("x-beamweft-input") == "original-file"
                    for item in (schema, *schema.get("$defs", {}).values()))
 
     def __post_init__(self):
@@ -344,7 +353,7 @@ class Study:
                 if source not in self.column_series or not index_field.strip():
                     raise ValueError("原始行引用须指向表列输入和结果行中的序号字段。")
         if self.registration_inputs:
-            properties = self.inputs.model_json_schema()["properties"]
+            properties = study_input_schema(self.inputs)["properties"]
             for target, basis in self.registration_inputs.items():
                 if (target not in self.input_ports or self.input_ports[target].shape != "state"
                         or properties.get(basis, {}).get("type") != "string" or basis in self.input_ports):
@@ -356,9 +365,9 @@ class Study:
         elif self.ignores_diagram_positions:
             raise ValueError("Only a live layout study can opt out of schematic component positions.")
         if self.layout_prefix_inputs:
-            fields = self.inputs.model_json_schema()["properties"]
+            fields = study_input_schema(self.inputs)["properties"]
             if (not self.live_layout or set(self.layout_prefix_inputs) != {"path","plane"} or
-                    any(fields.get(key,{}).get("x-laserclaw-input") != kind+"-uid" for kind,key in self.layout_prefix_inputs.items())):
+                    any(fields.get(key,{}).get("x-beamweft-input") != kind+"-uid" for kind,key in self.layout_prefix_inputs.items())):
                 raise ValueError("A source-to-station preview needs a live layout and named path/plane selectors.")
         for path, inputs in self.output_requirements.items():
             if path not in self.output_ports or set(inputs) - self.inputs.model_fields.keys():
@@ -366,7 +375,7 @@ class Study:
         law = self.element_law
         if law:
             fields = self.inputs.model_fields
-            properties = self.inputs.model_json_schema()["properties"]
+            properties = study_input_schema(self.inputs)["properties"]
             if properties.get(law.wavelength_input, {}).get("type") != "number" or self.uses_original_files:
                 raise ValueError("An element law requires a numeric wavelength and self-contained model parameters.")
             if law.length_input is not None and (law.representation != "ray_matrix" or law.length_input == law.wavelength_input
@@ -403,8 +412,14 @@ class Study:
     def column_series(self):
         return set(self.text_column_inputs) | {key for key, port in self.input_ports.items() if port.shape == "series"}
 
+    def accepts_saved_inputs(self, provider, owner, version):
+        archived = (provider_display_name(owner), version)
+        return archived == (provider, self.version) or any(
+            archived == (provider_display_name(accepted), v) for accepted, v in self.accepts_inputs_from
+        )
+
     def presentation(self, provider):
-        return {"name": self.name, "title": self.title, "version": self.version, "provider": provider,
+        return {"name": self.name, "title": self.title, "version": self.version, "provider": provider_display_name(provider),
                 "provider_display_name": provider_display_name(provider),
                 **({"keywords": self.keywords} if self.keywords else {}),
                 "scope": self.scope, "metrics": self.metrics, "table": self.table, "chart": self.chart, "view": self.view,
@@ -416,7 +431,8 @@ class Study:
                 **({"live_layout": self.live_layout} if self.live_layout else {}),
                 **({"ignores_diagram_positions": True} if self.ignores_diagram_positions else {}),
                 **({"layout_prefix_inputs": self.layout_prefix_inputs} if self.layout_prefix_inputs else {}),
-                **({"accepts_inputs_from": self.accepts_inputs_from} if self.accepts_inputs_from else {}),
+                **({"accepts_inputs_from": [(provider_display_name(owner), version) for owner, version in self.accepts_inputs_from]}
+                   if self.accepts_inputs_from else {}),
                 **({"raster": self.raster.model_dump()} if self.raster else {}),
                 **({"element_law": self.element_law.model_dump()} if self.element_law else {}),
                 **({"condition_matches": [m.model_dump() for m in self.condition_matches]} if self.condition_matches else {}),
@@ -426,4 +442,4 @@ class Study:
                 **({"row_outputs": {k: v.model_dump() for k, v in self.row_outputs.items()}} if self.row_outputs else {})}
 
     def describe(self, provider):
-        return {**self.presentation(provider), "inputs": self.inputs.model_json_schema()}
+        return {**self.presentation(provider), "inputs": study_input_schema(self.inputs)}
