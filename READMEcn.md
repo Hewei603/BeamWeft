@@ -10,7 +10,7 @@
 
 **用任务驱动的 AI Agent 组织激光实验设计、仿真和数据分析。** 新建工程只需名称，可直接搭建光路或放入测量原件。实验目标、器件资料和约束都可以稍后补充。Agent 读取信息、选择工具、检查真实计算结果、保存工程，并在需要时给出有单位和获取方法的补测问题。
 
-[使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [1.9 更新说明](CHANGELOG.md)
+[下载 Windows 版](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.0/BeamWeft-1.9.0-Windows.zip) · [使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [1.9 更新说明](CHANGELOG.md)
 
 | 画布上的 1064 nm 谐振腔 | 选中凹面镜查看参数 |
 | --- | --- |
@@ -206,18 +206,13 @@ BeamWeft 有两类检索来源：
 
 ## Windows 快速启动
 
-**前置要求**(只需装一次):
-
-- [Python 3.11+](https://www.python.org/downloads/) —— 安装时勾选 "Add python.exe to PATH"
-- [Node.js 22 LTS](https://nodejs.org/)
-
-然后双击:
+安装 [Python 3.11 或更高版本](https://www.python.org/downloads/)，勾选「Add python.exe to PATH」。将 Windows ZIP 完整解压到有写入权限的文件夹，再双击下面的启动器。ZIP 已包含构建好的界面。从 Git 仓库运行源码时，还需要安装 [Node.js 22.12 或更高版本](https://nodejs.org/) 来构建界面。
 
 ```bat
 Launch-BeamWeft.bat
 ```
 
-首次运行会自动创建 `.env` 配置文件(演示模式)。**日常怎么用请看中文使用指南:[docs/GUIDE_V2.md](docs/GUIDE_V2.md)**。
+首次启动会安装 Python 依赖并打开本机工程库。你可以先手工搭光路、运行仿真，随后按需配置 Agent。[Windows 使用说明](docs/WINDOWS_TRIAL.md)
 
 如果工作台已经打开，再次双击会连接到现有服务。安装或更新后首次打开会构建生产版界面，之后可复用本地构建。若端口由旧版本占用，请先保存工作并结束正在运行的任务，再关闭旧窗口。
 

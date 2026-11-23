@@ -10,7 +10,7 @@ In **1.9.0**, optical layouts saved by the Agent open in the same editor you use
 
 **A task-led AI Agent for laser experiment design, simulation and measurement analysis.** Start a project with a name, build its optical layout or add measured data, and save an editable `.lclaw` file for another workstation. The Agent chooses tools, checks real numerical results, saves editable optical projects and asks actionable measurement questions when information is missing.
 
-[User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [1.9 release notes](CHANGELOG.md)
+[Download for Windows](https://github.com/Hewei603/BeamWeft/releases/download/v1.9.0/BeamWeft-1.9.0-Windows.zip) · [User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [1.9 release notes](CHANGELOG.md)
 
 | 1064 nm resonator on the canvas | Inspecting the concave mirror |
 | --- | --- |
@@ -207,15 +207,15 @@ Known limitations:
 
 ## Quick Start on Windows
 
-**Prerequisites** (install once): [Python 3.11+](https://www.python.org/downloads/) (check "Add python.exe to PATH") and [Node.js 22 LTS](https://nodejs.org/).
+Install [Python 3.11 or later](https://www.python.org/downloads/) and select “Add python.exe to PATH”. Extract the Windows ZIP to a writable folder and double-click the launcher. The ZIP includes the compiled interface. If you clone the source repository, also install [Node.js 22.12 or later](https://nodejs.org/) to build it.
 
 ```bat
 Launch-BeamWeft.bat
 ```
 
-The first run auto-creates a `.env` config (demo mode). For the day-to-day Chinese user guide see [docs/GUIDE_V2.md](docs/GUIDE_V2.md).
+On first launch, BeamWeft installs the Python dependencies and opens the local project library. You can build a layout and run a simulation before configuring an Agent. See the [Windows guide](docs/WINDOWS_TRIAL.md).
 
-The launcher installs backend/frontend dependencies and starts:
+The launcher starts the following local services.
 
 - Backend API: <http://127.0.0.1:8000>
 - Frontend: <http://127.0.0.1:5173>
