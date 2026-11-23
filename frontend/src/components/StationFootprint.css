@@ -1,0 +1,13 @@
+.station-footprint { flex-basis:100%; min-width:0; color:#b7cbd4; }
+.station-footprint summary { width:fit-content; cursor:pointer; }
+.footprint-layout { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem 1.25rem; margin:.5rem 0; }
+.station-footprint-plot { width:min(100%,225px); background:#14232d; border:1px solid #334855; border-radius:6px; }
+.footprint-frame path { fill:none; stroke:#6f838d; }
+.footprint-frame text { fill:#c4d2d7; font-size:10px; font-variant-numeric:tabular-nums; }
+.footprint-shape { fill:none; stroke:currentColor; stroke-width:1.8px; }
+.footprint-layout .primary { color:#81dbd0; }
+.footprint-layout .incident { color:#f1b980; }
+.footprint-shape.incident ellipse { stroke-dasharray:5 3; }
+.footprint-layout p { margin:.4rem 0; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.footprint-layout b,.footprint-layout strong { font-weight:600; }
+.footprint-layout .footprint-offset { color:#e4ecef; border-top:1px solid #334855; padding-top:.45rem; }

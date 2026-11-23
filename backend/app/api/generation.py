@@ -6,7 +6,7 @@ import logging
 from time import perf_counter
 from typing import Any, Awaitable
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..auth.acl import assert_case_edit, assert_case_view
@@ -205,6 +205,7 @@ async def generate_report(
 async def list_generated_contents(
     case_id: int,
     content_type: str = None,
+    limit: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ):
@@ -214,4 +215,7 @@ async def list_generated_contents(
     query = db.query(GeneratedContent).filter(GeneratedContent.case_id == case_id)
     if content_type:
         query = query.filter(GeneratedContent.content_type == content_type)
-    return query.order_by(GeneratedContent.generated_at.desc()).all()
+    query = query.order_by(GeneratedContent.generated_at.desc(), GeneratedContent.id.desc())
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()

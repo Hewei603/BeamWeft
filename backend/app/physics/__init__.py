@@ -1,4 +1,4 @@
-"""LaserClaw physics kernel.
+"""BeamWeft physics kernel.
 
 Pure, deterministic scientific computing for laser-lab workflows:
 

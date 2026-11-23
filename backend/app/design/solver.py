@@ -6,15 +6,126 @@ The Nd:YVO4 index uses the manufacturer's published Sellmeier relation.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
+import re
 from typing import Any
+import unicodedata
 
 from ..physics import beam as B
 from ..physics.design import _round_trip_with_lens
+from ..physics.materials import index_info
 from ..physics.toolkit import _FLAT_ROC_MM, _analyze_length, beam_envelope
-from .planning import BK7_SOURCE, resolve_inputs
+from .assessment import PUMP_MEASUREMENTS, assess_inputs, candidate_pump_scope, pump_prediction
+from .planning import resolve_inputs
+from ..inventory.crystals import crystal_medium, material_key
 
 INDEX_SOURCE = "https://www.crystech.com/Laser_Crystal/446.html"
 CATALOGUE_ROCS = [50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000]
+YAG_INDEX_SOURCE = "https://opg.optica.org/ao/abstract.cfm?uri=ao-37-21-4933"
+
+
+def _material_text(value):
+    return unicodedata.normalize("NFKC", str(value or "")).lower().replace(" ", "").replace("：", ":")
+
+
+def _host_material(value):
+    return crystal_medium(value)
+
+
+def _has_saturable_absorber(value):
+    text = _material_text(value)
+    return bool(re.search(r"cr(?:4\+?)?:?yag", text)) or any(
+        name in text for name in ("saturable_absorber", "可饱和吸收", "被动调q"))
+
+
+def _resolve_crystal_structure(facts, inventory, *, assumption_policy):
+    """Use bound segment data without silently overwriting earlier user facts.
+
+    The specialized solver has one host index and a single contiguous gain
+    interval. Absorbers and mixed-host structures must use the general ordered
+    optical project for geometry, with a separate dynamics solver for power.
+    """
+    values = {key: entry["value"] for key, entry in facts.items()}
+    inventory_id = values.get("crystal_inventory_id")
+    selected = next((row for row in inventory if row["id"] == inventory_id), None)
+    spec = selected.get("crystal_spec") if selected else None
+    materials = [values.get("gain_material", "")]
+    if selected:
+        materials.extend([selected.get("material", ""), selected.get("name", "")])
+    segments = spec.get("segments", []) if isinstance(spec, dict) else []
+    has_absorber = any(s.get("role") == "saturable_absorber" or _has_saturable_absorber(s.get("material")) for s in segments)
+    if (has_absorber or values.get("has_saturable_absorber") is True
+            or bool(values.get("absorber_material")) or values.get("absorber_length_mm", 0) > 0
+            or any(_has_saturable_absorber(m) for m in materials)):
+        return facts, inventory, [], [], (
+            "选定晶体含 Cr⁴⁺:YAG／可饱和吸收段。当前端泵连续两镜专用求解器没有增益—光子—吸收体动力学，"
+            "不能忽略该段后给出连续功率、调Q脉宽、重复频率或功率最优方案。")
+    if spec is not None:
+        # A whole-part inscription cannot identify the active region of a bonded optic.
+        active = [s for s in segments if s.get("role") == "gain"]
+        gain_names = {s.get("material") for s in active}
+        gain_material = (active[0].get("material") if active and len(gain_names) == 1 and
+                         all(s.get("role") for s in segments) else None)
+        independent = spec.get("overall_length_mm")
+        section_sum = (math.fsum(s["length_mm"] for s in segments) if segments and
+                       all(s.get("length_mm") is not None for s in segments) else None)
+        if independent is not None and section_sum is not None and not math.isclose(section_sum, independent, rel_tol=1e-9, abs_tol=1e-9):
+            return facts, inventory, [], [{"level":"blocking", "text":"晶体的独立总厚度与分段长度之和有差异，请核对所绑定实物的记录。"}], None
+        thickness = independent if independent is not None else section_sum
+        inventory = [dict(row, material=gain_material, thickness_mm=thickness) if row["id"] == inventory_id else row for row in inventory]
+        if not segments or any(s.get("length_mm") is None or s.get("role") is None or not s.get("material") for s in segments):
+            level = "verify" if assumption_policy == "evidence_only" else "blocking"
+            return facts, inventory, [], [{"level":level, "text":"选定实物的分段记录不全。均匀近轴几何可用独立提供的总长和有效折射率计算；增益分布与材料色散仍需对应分段的材料、作用和段长。"}], None
+    if not segments:
+        if any("yag" in _material_text(m) and "yvo4" in _material_text(m) for m in materials):
+            return facts, inventory, [], [], "混合 YAG/YVO4 的分段晶体不能用单一折射率的专用模型代替；请在通用光学工程中逐段建模。"
+        return facts, inventory, [], [], None
+    issues, provenance = [], []
+    try:
+        roles = [s["role"] for s in segments]
+        lengths = [float(s["length_mm"]) for s in segments]
+        if any(not math.isfinite(x) or x <= 0 for x in lengths):
+            raise ValueError
+        active_indices = [i for i, role in enumerate(roles) if role == "gain"]
+        if not active_indices or any(role not in {"gain", "undoped"} for role in roles):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        issues.append({"level": "blocking", "text": "指定库存的晶体分段结构不完整；需要正长度、明确的增益段和无掺杂段，不能按总长全部当作增益段。"})
+        return facts, inventory, provenance, issues, None
+    first, last = active_indices[0], active_indices[-1]
+    hosts = {_host_material(s.get("material")) or material_key(s.get("material")) for s in segments}
+    if (last - first + 1 != len(active_indices) or len(hosts) != 1 or None in hosts
+            or len({_material_text(segments[i].get("material")) for i in active_indices}) != 1):
+        return facts, inventory, [], [], "当前分段结构包含不同基质或非连续／不同材料增益段，不能合并为单一均匀晶体；请使用通用分段光学工程计算冷腔几何。"
+    derived = {
+        "gain_material": segments[first]["material"],
+        "crystal_length_mm": sum(lengths),
+        "active_length_mm": sum(lengths[first:last + 1]),
+        "front_cap_mm": sum(lengths[:first]),
+        "rear_cap_mm": sum(lengths[last + 1:]),
+    }
+    for key, field in (("crystal_width_mm", "width_mm"), ("crystal_height_mm", "height_mm")):
+        if spec.get(field) is not None:
+            derived[key] = spec[field]
+    normalized = deepcopy(facts)
+    for key, value in derived.items():
+        previous = values.get(key)
+        same = (_material_text(previous) == _material_text(value) if isinstance(value, str) else
+                isinstance(previous, (int, float)) and math.isclose(previous, value, abs_tol=.01))
+        if previous is not None and not same:
+            issues.append({"level": "blocking", "text": f"指定晶体库存 #{inventory_id} 的分段结构 {key}={value} 与已有条件 {previous} 冲突；请确认替换或撤回旧条件，不能静默沿用旧晶体参数。"})
+        elif previous is None:
+            normalized[key] = {"value": value, "source": f"inventory:{inventory_id}", "verification": "structured_inventory"}
+            provenance.append({"key": key, "name": "库存分段结构", "value": value,
+                               "basis": f"由指定库存 #{inventory_id} 的晶体分段派生；未改写原始用户事实。"})
+    if any(s.get("uncertain") for s in segments):
+        provenance.append({"name": "分段参数待核验", "value": inventory_id,
+                           "basis": "库存包含待确认分段；本轮只按已录入尺寸计算条件几何，未将未知掺杂浓度或吸收体参数补成测量值。"})
+    # Compatibility adapter for the old scalar planner: the structured inventory
+    # is the source of these two values, not the flattened composite name.
+    resolved_inventory = [dict(row, material=derived["gain_material"], thickness_mm=derived["crystal_length_mm"])
+                          if row["id"] == inventory_id else row for row in inventory]
+    return normalized, resolved_inventory, provenance, issues, None
 
 
 def yvo4_index(wavelength_nm: float, polarization: str = "e") -> float:
@@ -160,44 +271,87 @@ def _pump_layout(values: dict, front: float, active_center: float, total: float,
     f1, f2 = values.get("collimator_f_mm"), values.get("focus_f_mm")
     notes = []
     if values.get("input_roc_mm"):
-        notes.append("凹面输入镜对 808 nm 的透射具有折射光焦度；基底材料、厚度和背面曲率未知。以下泵浦坐标为忽略输入镜透射光焦度的基线，不能作为最终聚焦镜安装距离；请测透过 M1 后的焦散或补入两面参数。")
+        notes.append("输入镜的泵浦透射光焦度取决于基底和两面曲率。本次基线忽略该光焦度，请测透过 M1 后的焦散或补齐镜片处方。")
     if not f1 and values.get("collimator_roc_mm") and values.get("collimator_index"):
         f1 = values["collimator_roc_mm"] / (values["collimator_index"] - 1)
         notes.append("准直镜按空气中薄平凸透镜 f=R/(n−1) 计算；厚透镜主面位置尚未计入。")
     missing = [key for key, val in [("collimator_f_mm", f1), ("focus_f_mm", f2)] if not val]
-    if values.get("pump_source") != "fiber":
+    measured_source = any(values.get(key) is not None for key in PUMP_MEASUREMENTS)
+    if not measured_source and values.get("pump_source") != "fiber":
         missing.append("pump_source")
-    if missing:
-        return {"status": "needs_specs", "missing": missing, "points": [], "positions": {},
-                "notes": notes, "formula": "光纤→准直镜=f1；两镜间距=f1+f2；像面芯径≈芯径×f2/f1。"}
     depth = values.get("pump_focus_depth_mm", active_center - front)
-    air_after_focus = f2 - depth / n
-    focus_z = front - air_after_focus
-    if focus_z >= -2:
-        return {"status": "no_fit", "missing": [], "points": [], "positions": {},
-                "notes": ["现有聚焦镜焦距与当前晶体位置不相容：聚焦镜会落在 M1 之后或间隙不足。"]}
-    col_z = values.get("collimator_z_mm", values["source_z_mm"] + f1 if "source_z_mm" in values else focus_z - f1 - f2)
-    fiber_z = values.get("source_z_mm", col_z - f1)
-    positions = {"source": fiber_z, "collimator": col_z, "focus_lens": focus_z}
+    source_fields = PUMP_MEASUREMENTS if measured_source else ("fiber_core_um", "fiber_na")
+    beam_missing = [key for key in source_fields if values.get(key) is None]
+    focus_z = front - f2 + depth/n if f2 else values.get("focus_lens_z_mm")
+    if measured_source and values.get("focus_lens_z_mm") is not None:
+        focus_z = values["focus_lens_z_mm"]
+    if focus_z is not None:
+        if focus_z >= (0 if measured_source else -2):
+            return {"status":"no_fit","missing":[],"points":[],"positions":{},
+                    "notes":["现有聚焦镜焦距与当前晶体位置不相容：聚焦镜会落在 M1 之后或间隙不足。"]}
+        if "focus_lens_z_mm" in values and not math.isclose(values["focus_lens_z_mm"], focus_z, abs_tol=.05):
+            return {"status":"no_fit","missing":[],"points":[],"positions":{},
+                    "notes":["固定聚焦镜位置、晶体位置和指定焦点深度不能同时满足。"]}
+    col_z = values.get("collimator_z_mm")
+    fiber_z = values.get("source_z_mm")
+    if f1 and col_z is None:
+        if fiber_z is not None:
+            col_z = fiber_z + f1
+        elif f2:
+            col_z = focus_z - f1 - f2
+    if f1 and fiber_z is None and col_z is not None:
+        fiber_z = col_z - f1
+    positions = {key: value for key, value in (("source", fiber_z), ("collimator", col_z),
+                                               ("focus_lens", focus_z)) if value is not None}
     conflicts = []
-    if not math.isclose(col_z - fiber_z, f1, abs_tol=.05):
+    if col_z is not None and fiber_z is not None and col_z <= fiber_z:
+        conflicts.append("准直镜必须位于泵浦出射面下游。")
+    elif not measured_source and col_z is not None and fiber_z is not None and f1 and not math.isclose(col_z - fiber_z, f1, abs_tol=.05):
         conflicts.append("固定光纤端到准直镜的间距不等于准直焦距，无法满足当前准直条件。")
-    if focus_z - col_z < 5:
+    if focus_z is not None and col_z is not None and focus_z <= col_z:
+        conflicts.append("聚焦镜必须位于准直镜下游。")
+    elif not measured_source and focus_z is not None and col_z is not None and focus_z - col_z < 5:
         conflicts.append("固定准直镜在聚焦镜之后或镜间装配距离不足 5 mm。")
-    if "focus_lens_z_mm" in values and not math.isclose(values["focus_lens_z_mm"], focus_z, abs_tol=.05):
-        conflicts.append("固定聚焦镜位置、晶体位置和指定焦点深度不能同时满足。")
     if conflicts:
         return {"status": "no_fit", "missing": [], "points": [], "positions": {}, "notes": conflicts}
-    beam_assumptions = []
-    for key in ["fiber_core_um", "fiber_na"]:
-        if not values.get(key):
-            missing.append(key)
-    core = values.get("fiber_core_um", 200)
-    na = values.get("fiber_na", .12)
-    if "fiber_core_um" in missing:
-        beam_assumptions.append("纤芯未知，包络场景暂用 200 μm；位置计算不依赖该假设。")
-    if "fiber_na" in missing:
-        beam_assumptions.append("NA 未知，包络场景暂用 0.12；位置计算不依赖 NA，准直口径需按实测 NA 更新。")
+    if missing:
+        if f2 and "focus_lens_z_mm" not in values:
+            notes.append("聚焦镜坐标以准直入射为条件。补齐准直段资料后可核对这个条件。")
+        return {"status": "needs_specs", "missing": missing + beam_missing, "points": [], "positions": positions,
+                "collimator_f_mm": f1, "focus_f_mm": f2, "notes": notes,
+                "formula": "光纤到准直主面距离为 f1。理想共轭面的放大率绝对值为 f2/f1。"}
+    core, na = values.get("fiber_core_um"), values.get("fiber_na")
+    if measured_source:
+        waist, divergence = (values.get(key) for key in PUMP_MEASUREMENTS)
+        layout = {"status": "geometry_only", "points": [], "positions": positions, "missing": beam_missing,
+                  "focus_depth_mm": depth, "focus_z_mm": front + depth, "collimator_f_mm": f1, "focus_f_mm": f2,
+                  "notes": notes, "launch_basis": "incomplete_second_moment",
+                  "launch_radius_mm": waist / 1000 if waist is not None else None,
+                  "launch_half_angle_rad": divergence / 1000 if divergence is not None else None}
+        if beam_missing:
+            notes.append("出射面的二阶矩测量还缺配对的半径或发散半角，暂时只给几何坐标。")
+            return layout
+        inputs = {**values, "source_z_mm": fiber_z, "collimator_z_mm": col_z, "focus_lens_z_mm": focus_z,
+                  "crystal_front_mm": front, "crystal_length_mm": total, "pump_index": n}
+        prediction, error = pump_prediction(inputs, f1, f2, observation_z_mm=active_center)
+        if error:
+            notes.append(error)
+            layout["launch_basis"] = "invalid_second_moment"
+            layout["launch_error"] = error
+            return layout
+        notes.append("采用出射束腰处的实测二阶矩半径和远场半角，按轴对称近轴模型传播。未给定的镜位以薄透镜共轭布置起算；实际最小光斑由传播结果决定。")
+        layout.update(status="geometric_model", points=prediction["points"], estimated_m2=prediction["m2"],
+                      minimum_inside_crystal=prediction["minimum_inside_crystal"],
+                      radius_at_active_center_mm=prediction["radius_at_observation_mm"],
+                      launch_basis="measured_second_moment")
+        return layout
+    if beam_missing:
+        geometry = {"status":"geometry_only","missing":beam_missing,"points":[],"positions":positions,
+                    "focus_depth_mm":depth,"focus_z_mm":front + depth,"collimator_f_mm":f1,"focus_f_mm":f2,
+                    "notes":notes + ["薄透镜共轭坐标由焦距决定。预测光强包络还需要出射尺寸和角分布。"]}
+        if core is not None:
+            geometry["geometric_core_image_radius_mm"] = core/2000 * f2/f1
+        return geometry
     r = core / 2000
     # Filled-core/filled-NA second-moment surrogate, NOT a measured Gaussian.
     effective_wl = math.pi * r * na * 1e6
@@ -223,34 +377,69 @@ def _pump_layout(values: dict, front: float, active_center: float, total: float,
         elif next_n != current_n:
             q = B.propagate_q(B.interface_flat(current_n, next_n), q)
             current_n = next_n
-    return {"status": "assumed_beam" if missing else "geometric_model", "missing": missing, "points": points,
+    return {"status": "geometric_model", "missing": missing, "points": points,
             "positions": positions, "focus_depth_mm": depth, "focus_z_mm": front + depth,
             "collimator_f_mm": f1, "focus_f_mm": f2,
+            "launch_basis": "filled_fiber", "launch_radius_mm": r, "launch_half_angle_rad": na,
             "image_radius_mm": r * f2 / f1, "collimated_radius_mm": f1 * na,
             "estimated_m2": math.pi * r * na / (values["pump_wavelength_nm"] * 1e-6),
-            "beam_assumptions": beam_assumptions, "assumed_na": na if "fiber_na" in missing else None,
-            "notes": notes + beam_assumptions + ["薄透镜共轭成像；默认镜间距 f1+f2，已有准直段位置允许改变镜间距；芯径与 NA 视为填满。",
+            "notes": notes + ["薄透镜共轭成像；默认镜间距 f1+f2，已有准直段位置允许改变镜间距；芯径与 NA 视为填满。",
                                "M1 透射基底的厚度/主面、透镜像差、偏振和装配公差尚需按实物校准。"]}
 
 
-def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
-    v, assumptions, issues, bindings = resolve_inputs(facts, inventory)
+def solve_design(facts: dict, inventory: list[dict], *, assumption_policy: str = "exploratory") -> dict[str, Any]:
+    normalized_facts, inventory, provenance, structure_issues, unsupported = _resolve_crystal_structure(facts, inventory, assumption_policy=assumption_policy)
+    v, assumptions, issues, bindings = resolve_inputs(normalized_facts, inventory, assumption_policy=assumption_policy)
+    assumptions.extend(provenance)
+    issues.extend(structure_issues)
     missing = []
-    result = {"schema": "optical_design_v2", "status": "needs_input", "facts": facts,
+    result = {"schema": "optical_design_v2", "status": "needs_input", "facts": facts, "assumption_policy": assumption_policy,
               "assumptions": assumptions, "issues": issues, "questions": missing, "candidates": [],
               "resolved_inputs": v, "component_bindings": bindings,
-              "engine": {"name": "LaserClaw ABCD", "implementation": "Python / NumPy 自洽腔模内核",
-                         "rezonator": "按标准近轴公式独立实现；未调用 Rezonator C++ 可执行程序。导出 .rez 可独立复算冷腔。",
+              "engine": {"name": "BeamWeft ABCD", "implementation": "Python / NumPy 自洽腔模内核",
+                         "rezonator": ("冷腔由 BeamWeft 独立计算。已计算的冷腔几何可在原生工程中打开并复算。"
+                                       if assumption_policy == "evidence_only"
+                                       else "冷腔由 BeamWeft 独立计算。探索候选可导出 .rez，在 reZonator 中复算。"),
                          "scope": "端泵两镜直线腔（曲率与输入/输出角色独立）、平面端面晶体、薄透镜泵浦基线、集总热透镜场景"},
-              "sources": [{"title": "CRYSTECH Nd:YVO4: Sellmeier 与偏振资料", "url": INDEX_SOURCE},
-                          {"title": "SCHOTT N-BK7 色散数据（透镜材料假设）", "url": BK7_SOURCE}],
+              "sources": [],
               "power_prediction": {"output_w": None, "reason": "未提供吸收率、实际耦合效率与腔内损耗，不能预测输出功率或断言起振。"}}
+
+    if unsupported:
+        result["status"] = "unsupported"
+        result["summary"] = unsupported + "可继续通过已保存的通用光学工程进行分段冷腔稳定性和模半径计算；这不等于完成激光功率或脉冲仿真。"
+        issues.append({"level": "blocking", "text": unsupported})
+        result["power_prediction"]["reason"] = unsupported
+        result["next_steps"] = [
+            "读取当前光学工程与晶体库存分段，保留每段材料、长度和吸收体角色。",
+            "使用 read_optical_project / analyze_optical_system / scan_optical_system 计算声明假设下的冷腔几何，不使用本专用连续设计器替代。",
+            "若要预测调Q脉冲或平均功率，补入增益和可饱和吸收体动力学及相应实测参数；当前没有这些求解能力。",
+        ]
+        return result
+
+    transmission = v.get("oc_transmission_pct")
+    if transmission is not None and transmission >= 100:
+        reason = (f"输出镜标称 T={transmission:g}%：在被动腔镜的功率守恒条件下，没有可用的反射反馈；"
+                  "不能把它作为闭合两镜谐振腔的输出耦合镜继续求解。请先核对T的波长、定义和对应表面。")
+        result["status"] = "unsupported"
+        result["summary"] = reason
+        issues.append({"level": "blocking", "text": reason})
+        result["power_prediction"]["reason"] = reason
+        result["next_steps"] = [
+            "核对元件库中的镀膜记录：T是功率透过率、吸收体初始透过率，还是另一波长/另一表面的数值。",
+            "若该镜在激光波长确为全透，应由用户选择有反射反馈的输出耦合镜；不自动更换已选实物。",
+            "通用ABCD仍可演示形式几何，但不能用其稳定性证明这组实物镜片可以产生激光振荡。",
+        ]
+        return result
 
     def ask(key, question, why):
         missing.append({"key": key, "question": question, "why": why})
 
     if any(i["level"] == "blocking" for i in issues):
+        result["summary"] = " ".join(i["text"] for i in issues if i["level"] == "blocking")
         return result
+    if assumption_policy == "evidence_only":
+        bound = next((item for item in inventory if item["id"] == v.get("crystal_inventory_id")), {})
+        return assess_inputs(result, v, (bound.get("crystal_spec") or {}).get("segments", []))
 
     for key, question in [("pump_wavelength_nm", "泵浦波长是多少？"), ("laser_wavelength_nm", "目标激光波长是多少？"),
                           ("gain_material", "增益晶体是什么材料？"), ("crystal_length_mm", "晶体总长是多少（复合晶体含端帽）？"),
@@ -272,16 +461,40 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
     if not width or not height:
         ask("crystal_width_mm", "晶体横截面宽×高是多少？", "缺少孔径就不能确认腔模是否截断。")
     n, np = v.get("crystal_index"), v.get("pump_index")
-    if "yvo4" in v["gain_material"].lower().replace("₄", "4"):
+    host = _host_material(v["gain_material"])
+    if host == "yvo4_e":
+        if (not n and not 400 <= wl <= 2000) or (not np and not 400 <= pump <= 2000):
+            ask("crystal_index", "请提供超出内置色散范围的波长所对应的折射率。", "YVO4 色散模型适用于 400–2000 nm。")
+            return result
+        if not n or not np:
+            result["sources"].append({"title": "CRYSTECH Nd:YVO4: Sellmeier 与偏振资料", "url": INDEX_SOURCE})
         if not n:
             n = yvo4_index(wl)
-            assumptions.append({"name": "晶体折射率", "value": round(n, 6), "basis": "厂家 Sellmeier，假定 a-cut、π 偏振；低掺杂段与端帽使用相同折射率。", "source": INDEX_SOURCE})
+            assumptions.append({"key": "crystal_index", "name": "晶体折射率", "value": n, "basis": "厂家 Sellmeier，假定 a-cut、π 偏振；低掺杂段与端帽使用相同折射率。", "source": INDEX_SOURCE})
         if not np:
             np = yvo4_index(pump)
-            assumptions.append({"name": "泵浦折射率", "value": round(np, 6), "basis": "暂按 e 光支路；泵浦偏振待核对。", "source": INDEX_SOURCE})
+            assumptions.append({"key": "pump_index", "name": "泵浦折射率", "value": np, "basis": "暂按 e 光支路；泵浦偏振待核对。", "source": INDEX_SOURCE})
+    elif host == "yag":
+        for key, wavelength, label in (("crystal_index", wl, "晶体折射率"), ("pump_index", pump, "泵浦折射率")):
+            if v.get(key):
+                continue
+            info = index_info("yag", wavelength)
+            if not info.in_range or not math.isfinite(info.n):
+                ask(key, f"请提供YAG在 {wavelength:g} nm 的折射率。", "该波长超出内置YAG色散模型适用范围。")
+                return result
+            if key == "crystal_index":
+                n = info.n
+            else:
+                np = info.n
+            assumptions.append({"key": key, "name": label, "value": info.n,
+                                "basis": "内置室温无掺杂YAG色散；Nd掺杂段与YAG端帽暂取相同实折射率，未计掺杂、温度和应力修正。",
+                                "source": YAG_INDEX_SOURCE})
+        result["sources"] = [source for source in result["sources"] if source["url"] != INDEX_SOURCE]
+        result["sources"].insert(0, {"title": "Zelmon 等：YAG折射率色散", "url": YAG_INDEX_SOURCE})
     if not n or not np:
         ask("crystal_index", "请提供晶体在激光与泵浦波长的折射率。", "当前材料没有内置且已核对的色散模型。")
         return result
+    v.update(crystal_index=n, pump_index=np)
     coating = v.get("ar_wavelengths_nm", [])
     if pump not in coating:
         issues.append({"level": "verify", "text": f"晶体标签未确认 AR@{pump:g} nm（已读到：{coating or '无'}）。需厂家曲线或透射测量；不能把其他波长 AR 当作泵浦波长 AR。"})
@@ -297,7 +510,8 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
         issues.append({"level": "blocking", "text": f"泵浦焦点深度 {depth:g} mm 不在掺杂段 {front_cap:g}–{total-rear_cap:g} mm 内；不能把无掺杂端帽当作增益段。"})
         return result
     assumptions.append({"name": "泵浦焦点", "value": depth, "unit": "mm（自晶体前端面）", "basis": "用户指定" if "pump_focus_depth_mm" in v else "先以掺杂段中心作为共轭像面；没有吸收分布时，这不是最高效率焦点位置。"})
-    if "focus_lens_z_mm" in v:
+    measured_source = any(v.get(key) is not None for key in PUMP_MEASUREMENTS)
+    if not measured_source and "focus_lens_z_mm" in v and v.get("focus_f_mm"):
         required_front = v["focus_lens_z_mm"] + v["focus_f_mm"] - depth / np
         if required_front < 0 or ("crystal_front_mm" in v and not math.isclose(v["crystal_front_mm"], required_front, abs_tol=.05)):
             issues.append({"level": "blocking", "text": "固定聚焦镜位置与 M1—晶体间距/焦点深度冲突；请解除一个位置约束。"})
@@ -314,30 +528,36 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
                         min_diameter=6, transmission=v.get("oc_transmission_pct") if "oc_transmission_pct" in facts else None)["matched"]) for roc in rocs}
     assumed_target = v.get("target_mode_radius_um", 150) / 1000
     f1 = v.get("collimator_f_mm") or (v.get("collimator_roc_mm", 0) / (v["collimator_index"] - 1) if v.get("collimator_index") else None)
-    if not v.get("target_mode_radius_um") and f1 and v.get("focus_f_mm") and v.get("fiber_core_um") and v.get("fiber_na") and facts.get("fiber_core_um", {}).get("verification") != "image_reading":
+    core_from_label = facts.get("fiber_core_um", {}).get("verification") in {"image_reading", "file_quote"}
+    if not v.get("target_mode_radius_um") and not measured_source and f1 and v.get("focus_f_mm") and v.get("fiber_core_um") and v.get("fiber_na") and not core_from_label:
         assumed_target = v["fiber_core_um"] / 2000 * v["focus_f_mm"] / f1
         target_basis = "按已知纤芯与双透镜成像倍率估计泵浦像半径，作为模式匹配目标。"
     else:
         target_basis = "用户指定目标" if v.get("target_mode_radius_um") else "泵浦像尺寸未知，先以 150 μm 为探索目标；这不是实验事实或最优值。"
     assumptions.extend([
         {"name": "腔结构", "value": f"M1 {mirror_label(r1)} / M2 {'平面' if rocs == [None] else '曲率见候选'}", "basis": "M1 始终为泵浦输入镜，M2 始终为输出镜；保留用户已有面形和曲率，仅扫描未锁定参数。"},
-        {"name": "目标晶体内模半径", "value": assumed_target * 1000, "unit": "μm", "basis": target_basis},
         {"name": "机械坐标", "value": "M1 镀膜面 z=0", "basis": "距离以 mm 计；外部透镜使用薄透镜主面，零件厚度与镜架间隙需复核。"},
     ])
     evaluated, stable = 0, 0
     shortlist = []
+    pump_by_front = {}
     rejected_layouts = []
     gap_min, gap_max = v["min_output_gap_mm"], v.get("max_output_gap_mm", max_l)
-    if gap_max < gap_min or ("output_gap_mm" in v and v["output_gap_mm"] < gap_min):
-        issues.append({"level": "blocking", "text": "固定 M2 距离或最大搜索距离小于最小装配间隙；请修正位置约束。"})
+    if gap_max < gap_min or ("output_gap_mm" in v and not gap_min <= v["output_gap_mm"] <= gap_max):
+        issues.append({"level": "blocking", "text": "固定 M2 距离与允许的最小、最大装配间隙不相容；请修正位置约束。"})
         return result
     for front in front_positions:
         crystal = {"n": n, "thickness_mm": total, "position_mm": front}
         center = front + front_cap + active / 2
         pump_layout = _pump_layout(v, front, center, total, np)
+        pump_by_front[front] = pump_layout
         if pump_layout["status"] == "no_fit":
             rejected_layouts.extend(pump_layout["notes"])
             continue
+        target, basis = assumed_target, target_basis
+        if not v.get("target_mode_radius_um") and pump_layout.get("radius_at_active_center_mm") is not None:
+            target = pump_layout["radius_at_active_center_mm"]
+            basis = "由实测源端二阶矩传播到本候选掺杂段中心，比较该平面的泵浦和腔模半径。"
         for roc in rocs:
             per_pair = []
             gaps = [v["output_gap_mm"]] if "output_gap_mm" in v else range(math.ceil(gap_min), math.floor(min(gap_max, max_l - front - total)) + 1)
@@ -355,11 +575,12 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
                 if width and height and 3 * crystal_max >= min(width, height) / 2:
                     continue
                 stable += 1
-                err = abs(math.log(radius / assumed_target))
+                err = abs(math.log(radius / target))
                 penalty = sum(abs(_thermal_stability_m(length, roc, crystal, focal, r1)) >= 1 for focal in [None, 2000, 1000, 500, 300, 200]) / 6
                 score = err + 2 * penalty + length / 3000 - (.08 if stock_by_roc[roc] else 0)
                 per_pair.append({"length_mm": float(length), "R1_mm": r1, "R2_mm": roc,
                                  "crystal": crystal, "active_center_mm": center, "mode_radius_mm": radius,
+                                 "target_radius_mm": target, "target_basis": basis,
                                  "crystal_max_radius_mm": crystal_max, "m": analysis["stability_m"], "score": score,
                                  "score_terms": {"mode_size": err, "thermal_instability": 2 * penalty, "length": length / 3000, "stock": -.08 if stock_by_roc[roc] else 0}})
             per_pair.sort(key=lambda c: c["score"])
@@ -401,20 +622,24 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
         length = candidate["length_mm"]
         envelope = beam_envelope(length, mirror_radius(r1), mirror_radius(candidate["R2_mm"]), wl, candidate["crystal"])
         candidate["beam_envelope"] = envelope
-        candidate["pump"] = _pump_layout(v, front, candidate["active_center_mm"], total, np)
+        candidate["pump"] = deepcopy(pump_by_front[front])
         if r1 is not None:
             candidate["pump"]["baseline_only"] = True
             candidate["pump"]["status"] = "input_mirror_unknown"
+        editable_pump, _, _ = candidate_pump_scope(candidate["pump"], candidate["crystal"], v)
+        if editable_pump:
+            candidate["editable_pump"] = editable_pump
         candidate["placement"] = {"input_gap_mm": front, "output_gap_mm": length - front - total,
                                    "crystal_front_mm": front, "crystal_rear_mm": front + total,
                                    "focus_depth_mm": depth, "focus_z_mm": front + depth,
                                    "active_start_mm": front + front_cap, "active_end_mm": front + front_cap + active}
         candidate["distance_scan"] = distance_scan(candidate, wl, max_l, gap_min)
         pump_positions = candidate["pump"]["positions"]
+        source_name = "光纤出光端" if v.get("pump_source") == "fiber" else "泵浦出射面"
         candidate["positions"] = [
-            {"id": "source", "name": "光纤出光端", "z_mm": pump_positions.get("source"), "basis": "距准直主面 f1；几何位置不依赖纤芯和 NA"},
-            {"id": "collimator", "name": "已有准直平凸镜", "z_mm": pump_positions.get("collimator"), "basis": "距光纤端一个准直焦距"},
-            {"id": "focus_lens", "name": "聚焦平凸镜", "z_mm": pump_positions.get("focus_lens"), "basis": f"晶体前端面前 f2−{depth:g}/n泵浦；焦点位于晶体内 {depth:g} mm"},
+            {"id": "source", "name": source_name, "z_mm": pump_positions.get("source"), "basis": "工程指定坐标" if "source_z_mm" in v else "按准直镜前焦面布置"},
+            {"id": "collimator", "name": "准直镜", "z_mm": pump_positions.get("collimator"), "basis": "工程指定坐标" if "collimator_z_mm" in v else "薄透镜共轭初始布置"},
+            {"id": "focus_lens", "name": "聚焦镜", "z_mm": pump_positions.get("focus_lens"), "basis": "工程指定坐标" if "focus_lens_z_mm" in v else f"薄透镜共轭初始布置，目标像面深度 {depth:g} mm"},
             {"id": "M1", "name": f"输入腔镜 M1（{mirror_label(r1)}）", "z_mm": 0, "basis": "坐标原点；HT 泵浦 / HR 激光；曲面反射面朝腔内"},
             {"id": "crystal", "name": "晶体前表面", "z_mm": front, "basis": "腔扫描设计值", "end_z_mm": front + total},
             {"id": "active", "name": "掺杂段", "z_mm": front + front_cap, "end_z_mm": front + front_cap + active, "basis": "按标签端帽/掺杂段尺寸"},
@@ -447,10 +672,14 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
                 bom[-1]["transmission_basis"] = "已有输出镜的 T 未知；1/3/5/10% 仅为比较场景，非实物参数"
         candidate["bom"] = bom
         candidate["components"] = []
+        def lens_spec(focal_length):
+            focal = f"f≈{focal_length:g} mm" if focal_length is not None else "泵浦波长处的焦距待测"
+            return f"{focal}；镀膜目标 AR@{pump:g} nm，实物镀膜需核对标签/曲线"
+
         for role, name, spec, owned in [
-            ("source", "泵浦源", f"{pump:g} nm，{v.get('pump_power_w', '待定')} W，光纤输出", "pump_power_w" in facts),
-            ("collimator", "准直镜", f"f≈{candidate['pump'].get('collimator_f_mm', f1) or 0:.2f} mm；镀膜目标 AR@{pump:g} nm，实物镀膜需核对标签/曲线", bool(v.get("collimator_owned") or "collimator_f_mm" in facts or "collimator_roc_mm" in facts)),
-            ("focus_lens", "聚焦镜", f"f={v.get('focus_f_mm', 0):g} mm；镀膜目标 AR@{pump:g} nm，实物镀膜需核对标签/曲线", bool(v.get("focus_lens_owned") or "focus_f_mm" in facts)),
+            ("source", "泵浦源", f"{pump:g} nm，{v.get('pump_power_w', '待定')} W，{source_name}", "pump_power_w" in facts),
+            ("collimator", "准直镜", lens_spec(candidate["pump"].get("collimator_f_mm",f1)), bool(v.get("collimator_owned") or "collimator_f_mm" in facts or "collimator_roc_mm" in facts)),
+            ("focus_lens", "聚焦镜", lens_spec(v.get("focus_f_mm")), bool(v.get("focus_lens_owned") or "focus_f_mm" in facts)),
             ("M1", "输入腔镜", bom[0]["spec"], v.get("input_mirror_owned", False)),
             ("crystal", "增益晶体", f"{v['gain_material']}，总长 {total:g} mm / 掺杂段 {active:g} mm", "crystal_length_mm" in facts),
             ("M2", "输出耦合镜", bom[1]["spec"] + (f"，T={bom[1]['transmission_pct']:g}%" if bom[1]['transmission_pct'] is not None else "，T 未知"), v.get("output_mirror_owned", False)),
@@ -461,30 +690,35 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
             candidate["components"].append({"role": role, "name": name, "spec": spec,
                 "status": "bound" if binding else "owned" if owned else mirror_bom["status"] if mirror_bom else "purchase",
                 "inventory": binding, "z_mm": next(p["z_mm"] for p in candidate["positions"] if p["id"] == role)})
-        if candidate["pump"].get("image_radius_mm"):
-            wp, wc = candidate["pump"]["image_radius_mm"], candidate["mode_radius_mm"]
+        wp = candidate["pump"].get("radius_at_active_center_mm") or candidate["pump"].get("image_radius_mm")
+        if wp:
+            wc = candidate["mode_radius_mm"]
             candidate["pump"]["size_overlap_proxy"] = (2 * wp * wc / (wp * wp + wc * wc)) ** 2
             candidate["pump"]["notes"].append("重叠指标只比较两个圆对称尺寸；不代表真实多模泵浦吸收或增益重叠效率。")
             if wp < wc / 3 or wp > wc * 3:
-                candidate["pump"]["notes"].append(f"当前成像半径 {wp*1000:.1f} μm 与腔模 {wc*1000:.1f} μm 相差超过 3 倍；保留现有透镜的方案存在模式尺寸失配。先确认实际 808 nm 出光尺寸，再改变 f2/f1 倍率。")
+                candidate["pump"]["notes"].append(f"泵浦模型半径 {wp*1000:.1f} μm 与腔模 {wc*1000:.1f} μm 相差超过 3 倍。可核对观察平面或比较其他镜位。")
                 candidate["pump"]["size_mismatch"] = True
     result["candidates"] = chosen
     selected = min(int(v.get("candidate_rank", 1)), len(chosen))
     result["selected_rank"] = selected
     recommended = chosen[selected - 1]
+    target_um = recommended["target_radius_mm"] * 1000
+    assumptions.append({"name": "目标晶体内模半径", "value": target_um, "unit": "μm", "basis": recommended["target_basis"]})
     for key in recommended["pump"]["missing"]:
         question = {
-            "collimator_f_mm": "R50 准直镜的实际焦距，或玻璃材料在泵浦波长下的折射率是多少？",
+            "collimator_f_mm": "准直镜在泵浦波长下的实测焦距是多少？若已知平凸处方，也可提供曲率半径和该波长下的折射率。",
             "focus_f_mm": "聚焦镜焦距是多少？", "fiber_core_um": "光纤芯径是多少 μm？",
-            "fiber_na": "光纤 NA 是多少？", "pump_source": "是否为光纤输出？自由空间源需另建输入光束模型。",
+            "fiber_na": "光纤 NA 是多少？", "pump_source": "请提供出射面束腰二阶矩半径和远场发散半角，或明确光纤出光模型。",
+            "pump_farfield_half_angle_mrad": "同一光束的远场二阶矩发散半角是多少 mrad？",
+            "pump_exit_waist_radius_um": "出射面为束腰时的二阶矩半径是多少 μm？",
         }[key]
         ask(key, question, "用于收敛泵浦光斑与通光口径的不确定性；当前几何坐标和腔镜仿真继续有效。")
     if not v.get("pump_power_w"):
         ask("pump_power_w", "泵浦最大功率是多少？", "用于器件承载与后续热模型；当前不预测热焦距。")
     if r1 is not None:
-        issues.append({"level": "verify", "text": "凹面 M1 的腔内反射已按实际曲率计算；808 nm 透射还缺基底两面和厚度。泵浦图暂是忽略 M1 折射的对照基线，实际焦点须测透过 M1 后的焦散或补齐参数再算。"})
+        issues.append({"level": "verify", "text": f"凹面 M1 的腔内反射已按实际曲率计算。{pump:g} nm 透射还缺基底两面和厚度。实际焦点须测透过 M1 后的焦散或补齐透射处方再算。"})
     if v.get("output_mirror_owned") and v.get("oc_transmission_pct") is None:
-        issues.append({"level": "verify", "text": "已有输出镜 T@1064 未知；保留实物并继续腔模计算，不将 5% 场景当成实物透过率。"})
+        issues.append({"level": "verify", "text": f"已有输出镜在 {wl:g} nm 下的透过率未知。可保留实物继续腔模计算，5% 仅为对照场景。"})
     result["threshold_scan"] = [
         {"T_pct": t, "round_trip_loss_pct": loss * 100,
          "required_gain_cm_inv": round(-math.log(0.999 * (1 - t / 100) * (1 - loss)) / (2 * active / 10), 6)}
@@ -493,7 +727,7 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
     ]
     assumptions.append({"name": "输出耦合扫描", "value": "R1=99.9%；其余往返损耗=0.5/1/2%", "basis": "仅计算阈值所需增益 g=-ln(R1·R2·(1−L))/(2l)，不是最佳 T 或起振功率预测。"})
     assumptions.append({"name": "采购规格核验", "value": "R/T 数值为目标规格", "basis": "库存 HR/HT 标签只用于初筛；还需供应商数据核对反射/透射率、有效口径、入射角、偏振、面形、基底与承载能力。"})
-    assumptions.append({"name": "热透镜扫描", "value": "∞、2000…50 mm", "basis": "在晶体几何中心插入会聚薄透镜、往返两次；场景敏感性分析，未从 6 W 或其他泵浦功率推算实际热透镜。"})
+    assumptions.append({"name": "热透镜扫描", "value": "∞、2000…50 mm", "basis": "在晶体几何中心插入会聚薄透镜、往返两次；场景敏感性分析，未从泵浦功率推算实际热透镜。"})
     result["status"] = "preliminary" if missing or recommended["pump"]["status"] != "geometric_model" else "modeled"
     placement = recommended["placement"]
     output_t = recommended['bom'][1]['transmission_pct']
@@ -504,12 +738,12 @@ def solve_design(facts: dict, inventory: list[dict]) -> dict[str, Any]:
         result["summary"] += "泵浦位置仅为未计 M1 透射折射的对照基线，不能作为实际安装定位。"
     result["optimization"] = {"claim": "已知约束及列明假设下的综合最优候选", "score": recommended["score"],
                               "not_solved": ["吸收/增益饱和与输出功率最优值", "实际热透镜与冷却边界", "真实泵浦场与高阶横模竞争"],
-                              "target_mode_radius_um": assumed_target * 1000,
+                              "target_mode_radius_um": target_um,
                               "owned_lenses_preserved": True}
     result["next_steps"] = [
         "逐项核对事实卡，纠正标签识别；补充下方关键问题后重新计算。",
         "比较候选曲率与热透镜扫描，再核对库存条目的原始镀膜、可用数量与口径。",
-        "测得 808 nm 透射、泵浦像尺寸与腔内损耗后再定输出耦合率；当前只提供候选规格。",
+        f"测得 {pump:g} nm 透射、泵浦像尺寸与腔内损耗后再定输出耦合率。当前只提供候选规格。",
         "确认镜架、晶体夹持/冷却、透镜主面、测量器件额定功率与吸收终端后，才进入实验室批准的受控验证。",
     ]
     return result

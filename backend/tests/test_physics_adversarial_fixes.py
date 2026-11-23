@@ -76,12 +76,13 @@ def test_target_r_one_does_not_crash_entrypoint():
     assert res["status"] == "completed"
 
 
-def test_vendor_curve_nan_becomes_null():
+def test_vendor_curve_nan_is_rejected_before_interpolation():
     res = evaluate_coating({"mode": "vendor_curve",
                             "vendor_curve": {"wl_nm": [1000, 1100, 1200], "R": [0.1, float("nan"), 0.9]},
                             "query_wavelengths_nm": [1050, 1150]})
-    for q in res["query_results"]:
-        assert q["R"] is None or math.isfinite(q["R"])  # never a bare NaN
+    assert res["status"] == "failed"
+    assert "finite" in res["message"]
+    assert "query_results" not in res  # invalid input must not look like a computed result
 
 
 # --- Nonlinear: multi-pairing coverage + honest no-solution ----------------

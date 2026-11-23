@@ -1,0 +1,20 @@
+.meter-analysis {margin:.75rem 0;padding:.7rem .85rem;border:1px solid #3a505e;border-radius:5px}
+.meter-analysis fieldset {min-width:0;margin:.55rem 0 0;padding:0;border:0}
+.meter-analysis .btn-primary {margin:.65rem 0}
+.meter-result {margin:.65rem 0;padding:.7rem;background:#10202a;color:#dceaf0;border-radius:4px}
+.meter-result h4 {margin:0 0 .35rem}.meter-result p {line-height:1.55;overflow-wrap:anywhere}
+.meter-stats {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:.7rem}
+.meter-stat {border-left:2px solid #71c9bd;padding-left:.65rem;font-size:.86rem;line-height:1.6}
+.meter-stat strong {color:#eaf4f5}.meter-result details {margin-top:.7rem}
+.meter-scroll {overflow-x:auto;max-width:100%}.meter-scroll table {width:100%;min-width:560px;font-variant-numeric:tabular-nums}
+.meter-result .meter-hash {overflow-wrap:anywhere;font-size:.77rem}
+.meter-plot {margin:.8rem 0;padding:.7rem;background:#142733;border-radius:5px;max-width:860px}
+.meter-plot svg {display:block;width:100%;height:auto;cursor:crosshair}.meter-plot text {fill:#b9ccd5;font:12px system-ui,sans-serif}
+.meter-grid,.meter-cursor {stroke:#465a65;fill:none}.meter-cursor {stroke-dasharray:3 4}
+.meter-fixed {fill:#9eaec84d;stroke:#9eaec8;stroke-width:.8}
+.meter-local,.meter-errors,.meter-dots {fill:none;stroke-linecap:round}
+.meter-local {stroke:#55c8b8;stroke-width:8}.meter-errors {stroke:#f7c583;stroke-width:2}
+.meter-dots {stroke:#fff4cb;stroke-width:5}.meter-active {fill:none;stroke:#fff4cb}
+.meter-legend {display:flex;flex-wrap:wrap;gap:.35rem 1rem;color:#d9e7ed;font-size:.78rem}
+.meter-legend span:first-child {color:#fff4cb}.meter-plot input[type=range] {width:min(55%,320px);vertical-align:middle;margin:.5rem}
+.meter-plot p {margin:.2rem 0}.meter-plot figcaption {font-size:.86rem}

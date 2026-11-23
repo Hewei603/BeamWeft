@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 
 from pydantic import ConfigDict, field_validator
+from .agent_settings import OpenAIReasoningEffort
 
 # Look for .env next to the repo root as well as the current working directory,
 # so running uvicorn from backend/ still picks up the project-level config.
@@ -76,7 +77,8 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
     openai_base_url: Optional[str] = None
-    # Codex CLI owns ChatGPT sign-in; LaserClaw never reads its tokens.
+    openai_reasoning_effort: OpenAIReasoningEffort = "auto"
+    # Codex CLI owns ChatGPT sign-in; BeamWeft never reads its tokens.
     codex_exec_model: str = "gpt-6.1-sol"
     codex_exec_path: str = ""
     codex_exec_timeout_seconds: int = 300
@@ -101,6 +103,7 @@ class Settings(BaseSettings):
     anthropic_temperature: float = 0.2
     environment: str = "local"
     strict_provider: bool = False
+    migrate_legacy_on_start: bool = True
     auto_create_tables: bool = True
     require_auth: bool = False
     api_key: Optional[str] = None

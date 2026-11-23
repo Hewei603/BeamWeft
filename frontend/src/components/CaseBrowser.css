@@ -1,0 +1,16 @@
+.case-browser { max-width: 68rem; }
+.case-browser form { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: 1rem 0; }
+.case-browser input[type=search] { flex: 1 1 14rem; min-width: 0; padding: .65rem .85rem; border: 1px solid #425a70; background: #101c29; color: #e5eef9; border-radius: .45rem; font: inherit; }
+.case-browser ul { list-style: none; padding: 0; margin: 0 0 .8rem; }
+.case-card, .case-pick { border-bottom: 1px solid #334557; padding: .95rem 0; }
+.case-card { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .8rem; overflow-wrap: anywhere; }
+.case-card h2 { font-size: 1.1rem; margin: 0; }
+.case-card h2 a { color: #9dc9ff; }
+.case-card p { margin: .3rem 0; }
+.case-card-meta { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; }
+.case-card-actions { flex: none; }
+.case-card-actions summary { color: #becfdf; cursor: pointer; padding: .45rem .2rem; }
+.case-card-actions>div { display: flex; flex-wrap: wrap; gap: .45rem; padding-block: .2rem; }
+.case-card-meta, .case-pick small { margin-top: .3rem; color: #a8bbce; font-size: .82rem; }
+.case-pick { width: 100%; text-align: left; color: inherit; background: transparent; border-width: 0 0 1px; cursor: pointer; font: inherit; }
+.case-select-panel { max-height: 22rem; overflow-y: auto; padding: .5rem 1rem; border: 1px solid #425a70; border-radius: .45rem; }

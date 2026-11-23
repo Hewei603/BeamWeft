@@ -140,7 +140,7 @@ def run_child(backend: str, repeats: int, top_k: int) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark LaserClaw retrieval backends on a reproducible synthetic corpus.")
+    parser = argparse.ArgumentParser(description="Benchmark BeamWeft retrieval backends on a reproducible synthetic corpus.")
     parser.add_argument("--backends", default="sql_json,chroma,pgvector")
     parser.add_argument("--backend")
     parser.add_argument("--repeats", type=int, default=10)

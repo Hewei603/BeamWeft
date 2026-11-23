@@ -35,3 +35,13 @@ def test_random_stacks_match_byrnes_oracle():
         )
         worst = max(worst, abs(R - res["R"]), abs(T - res["T"]))
     assert worst < 1e-10, f"TMM diverges from independent oracle by {worst:.2e}"
+
+
+@pytest.mark.parametrize("pol", ["s", "p"])
+def test_absorbing_film_from_glass_through_critical_angle(pol):
+    n0, nfilm, ns = 1.51, 2.1 - .045j, 1.0
+    critical = np.rad2deg(np.arcsin(ns / n0))
+    for angle in (0, critical - .001, critical + .001, 44, 60, 74):
+        r, t, a = solve_RT([nfilm], [100], 633, angle, pol, n0, ns)
+        ref = oracle.coh_tmm(pol, [n0, nfilm.conjugate(), ns], [np.inf,100,np.inf], np.deg2rad(angle), 633)
+        assert (r,t,a) == pytest.approx((ref["R"],ref["T"],1-ref["R"]-ref["T"]), abs=1e-10)

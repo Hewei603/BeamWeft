@@ -105,10 +105,17 @@
   /* SVG colours come from CSS classes, so they need print overrides too —
      the teal-on-dark palette is unreadable on white. */
   .cavity-diagram .axis { stroke: #666 !important; }
+  .cavity-plot { background: #fff !important; border-color: #888 !important; }
+  .cavity-diagram .guide, .cavity-diagram .distance-axis { stroke: #999 !important; }
+  .cavity-report h4, .cavity-report dt, .cavity-report dd, .cavity-report small,
+  .cavity-legend, .cavity-result .cavity-stable, .cavity-model-notes p,
+  .cavity-model-notes strong { color: #222 !important; }
+  .cavity-legend i { border-color: #555 !important; }
   .cavity-diagram .beam { fill: rgba(0, 0, 0, 0.12) !important; stroke: #222 !important; }
   .cavity-diagram .mirror { stroke: #000 !important; }
   .cavity-diagram .crystal { fill: rgba(0, 0, 0, 0.06) !important; stroke: #444 !important; }
   .cavity-diagram .waist-mark { stroke: #555 !important; }
+  .cavity-diagram .waist-tip { fill: #555 !important; }
   .cavity-diagram .chart-note,
   .power-chart .chart-note { fill: #111 !important; }
   .power-chart .axis,

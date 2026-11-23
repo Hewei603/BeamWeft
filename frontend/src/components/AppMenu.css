@@ -1,0 +1,44 @@
+.navbar.app-menu {
+  display:flex;
+  align-items:center;
+  gap:clamp(.75rem, 2vw, 2rem);
+  padding:.3rem clamp(.75rem, 2vw, 2rem);
+  position:relative;
+  z-index:12;
+}
+.app-menu .product-wordmark { font-size:1.16rem; flex:none; }
+.app-menu-groups { display:flex; align-items:center; flex-wrap:wrap; gap:2px; }
+.app-menu-group { position:relative; }
+.app-menu-heading, .app-menu-panel button, .app-menu-panel a {
+  border:0; background:none; color:#d5e2e7; font:inherit; cursor:pointer;
+}
+.app-menu-heading { padding:.45rem .7rem; font-size:.9rem; min-height:36px; border-radius:4px; }
+.app-menu-heading:hover, .app-menu-heading[aria-expanded="true"] { background:#21343c; color:#e1fff5; }
+.app-menu-panel {
+  position:absolute; top:calc(100% + 3px); left:0; width:max-content; min-width:11rem;
+  max-width:calc(100vw - 16px); padding:4px; border:1px solid #3f535f; border-radius:6px;
+  background:#16252e; box-shadow:0 8px 24px #060d1380;
+}
+.app-menu-panel[hidden] { display:none; }
+.app-menu-panel a, .app-menu-panel button {
+  display:block; width:100%; box-sizing:border-box; text-align:start; border-radius:3px;
+  padding:.45rem .7rem; font-size:.88rem; line-height:1.4; text-decoration:none; letter-spacing:normal;
+}
+.app-menu-panel :is(a,button):is(:focus-visible,:hover):not(:disabled) { background:#28414a; color:#e5fff6; }
+.app-menu-panel button:disabled { color:#899aa4; cursor:default; }
+.app-menu-panel hr { border:0; border-top:1px solid #33454e; margin:3px 5px; }
+.app-menu-panel [role="alert"] { display:block; max-width:22rem; padding:.4rem; color:#ffcbc8; }
+.app-menu-help { margin:auto; width:min(28rem, calc(100% - 2rem)); padding:1.35rem;
+  color:#e1edf0; background:#172630; border:1px solid #546671; border-radius:8px; }
+.app-menu-help::backdrop { background:#091119a8; }
+.app-menu-help h2 { margin:0 0 .8rem; font-size:1.15rem; }
+.app-menu-help ul { padding-inline-start:1.2rem; }
+.app-menu-help li { margin:.6rem 0; line-height:1.65; }
+@media (max-width:600px) {
+  .navbar.app-menu { gap:.3rem; padding:.2rem .5rem; }
+  .app-menu .product-wordmark span { display:none; }
+  .app-menu .brand-optics { margin:0; }
+  .app-menu-heading { padding:.4rem .42rem; min-height:40px; }
+  .app-menu-group:nth-last-child(-n+2) .app-menu-panel { left:auto; right:0; }
+}
+@media print { .navbar.app-menu { display:none; } }

@@ -1,0 +1,17 @@
+# Local desktop runtime: SQLite library, optical solvers, files and model providers.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+sqlalchemy>=2.0,<3.0
+pydantic>=2.10,<3.0
+pydantic-settings>=2.6,<3.0
+numpy>=1.26,<3.0
+scipy>=1.11,<2.0
+alembic>=1.14,<2.0
+python-multipart>=0.0.12,<1.0
+Pillow>=10.4,<13
+aiofiles>=24.1,<25.0
+httpx>=0.27,<1.0
+openai>=2.26,<3.0
+anthropic
+pypdf>=5.1,<7.0
+openpyxl>=3.1,<4.0

@@ -12,9 +12,12 @@ from fastapi.responses import JSONResponse
 from .api import admin, agent, attachments, case_modules, cases, collaboration, design, evals, generation, inventory, knowledge, literature, settings as settings_api, versioning
 from .config import get_settings
 from .database import Base, engine, sync_additive_schema
-from .version import APP_VERSION
+from .version import APP_NAME, APP_VERSION
 from .api import workbench
+from .api import inventory_label
+from .api import desktop_documents
 from . import models  # noqa: F401 - register SQLAlchemy models
+from .attachment_evidence import OriginalRemoved
 
 settings = get_settings()
 
@@ -25,8 +28,9 @@ logger = logging.getLogger("laserclaw")
 # the new location, and the legacy-data copy only ever fills an empty target.
 from .data_migration import migrate_legacy_data  # noqa: E402
 
-for _note in migrate_legacy_data(settings):
-    logger.info(_note)
+if settings.migrate_legacy_on_start:
+    for _note in migrate_legacy_data(settings):
+        logger.info(_note)
 
 if settings.auto_create_tables:
     Base.metadata.create_all(bind=engine)
@@ -36,10 +40,15 @@ if settings.auto_create_tables:
 os.makedirs(settings.upload_dir, exist_ok=True)
 
 app = FastAPI(
-    title="LaserClaw API",
-    description="Retrieval-augmented laser experiment workflow and Agent system.",
+    title=f"{APP_NAME} API",
+    description="Optical system modeling, laser simulations, laboratory measurements and project-based Agent tools.",
     version=APP_VERSION,
 )
+
+@app.exception_handler(OriginalRemoved)
+async def evidence_removed(request: Request, exc: OriginalRemoved):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -71,6 +80,7 @@ app.add_middleware(
 # who can reach the port, even with REQUIRE_AUTH=true.
 
 app.include_router(cases.router, prefix="/api/cases", tags=["cases"])
+app.include_router(desktop_documents.router, prefix="/api/desktop", tags=["desktop"])
 app.include_router(case_modules.router, prefix="/api/cases", tags=["case-modules"])
 app.include_router(attachments.router, prefix="/api", tags=["attachments"])
 app.include_router(generation.router, prefix="/api/cases", tags=["generation"])
@@ -81,6 +91,7 @@ app.include_router(collaboration.router, prefix="/api/collaboration", tags=["col
 app.include_router(versioning.router, prefix="/api/versioning", tags=["versioning"])
 app.include_router(evals.router, prefix="/api/evals", tags=["evals"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["inventory"])
+app.include_router(inventory_label.router, prefix="/api/inventory", tags=["inventory"])
 app.include_router(literature.router, prefix="/api/literature", tags=["literature"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(design.router, prefix="/api/cases", tags=["design"])
@@ -89,7 +100,17 @@ app.include_router(workbench.router, prefix="/api/cases", tags=["workbench"])
 
 @app.get("/")
 async def root():
-    return {"message": "LaserClaw API", "version": APP_VERSION, "docs": "/docs"}
+    return {"message": f"{APP_NAME} API", "version": APP_VERSION, "docs": "/docs"}
+
+
+_library_instance = os.environ.get("BEAMWEFT_LIBRARY_INSTANCE")
+if _library_instance:
+    from .desktop_ui import name_desktop_console
+    name_desktop_console("BeamWeft API")
+
+    @app.get("/.well-known/beamweft-library", include_in_schema=False)
+    def desktop_library_instance():
+        return JSONResponse({"instance": _library_instance, "service": "api"}, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")

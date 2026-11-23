@@ -7,7 +7,7 @@ const number = (value, digits = 6) => value == null ? '∞' : Number(value).toLo
 const colors = ['#76d9d0', '#9cabff', '#e4b779', '#d995df', '#fa8989', '#dce5ef'];
 const csvCell = value => `"${String(value ?? 'Infinity').replaceAll('"', '""')}"`;
 function downloadCsv(data, filename, scanning) {
-  const meta = [['LaserClaw ABCD optical analysis', filename], ['mode', data.mode], ['wavelength_nm', data.wavelength_nm], ['effective_wavelength_nm', data.effective_wavelength_nm], ['output_gap_mm', data.output_gap_mm], ['thermal_f_mm', data.thermal_f_mm], ['beam_width_definition', '1/e^2 intensity radius'], ['model', data.planes], ...data.notes.map(note => ['note', note])];
+  const meta = [['BeamWeft ABCD optical analysis', filename], ['mode', data.mode], ['wavelength_nm', data.wavelength_nm], ['effective_wavelength_nm', data.effective_wavelength_nm], ['output_gap_mm', data.output_gap_mm], ['thermal_f_mm', data.thermal_f_mm], ['beam_width_definition', '1/e^2 intensity radius'], ['model', data.planes], ...data.notes.map(note => ['note', note])];
   const keys = ['z_mm', 'w_mm', 'R_mm', 'inverse_R_per_mm', 'q_real_mm', 'q_imag_mm', 'n', 'segment'];
   const rows = scanning ? [['gap_mm', ...data.scan.series.map(s => `m_f_${s.f_mm ?? 'cold'}_mm`)], ...data.scan.series[0].points.map((p, i) => [p.gap_mm, ...data.scan.series.map(s => s.points[i].m)])] : [keys, ...data.trace.points.map(p => keys.map(k => p[k]))];
   const url = URL.createObjectURL(new Blob(['\uFEFF' + [...meta, [], ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
@@ -145,7 +145,7 @@ export default function OpticalAnalysis({ caseId, revisionId, revisionNumber, ca
     <div className="oa-modes"><button className={mode === 'cavity' ? 'active' : ''} onClick={() => selectMode('cavity')}>激光腔模</button><button className={mode === 'pump' ? 'active' : ''} onClick={() => selectMode('pump')}>泵浦成像</button><span>{data ? `${number(data.wavelength_nm, 1)} nm · ${mode === 'cavity' ? '自洽本征模' : '等效 M² 场景'}` : 'ABCD 物理内核'}</span></div>
     <div className="oa-controls">
       <label>晶体后端面 → M2 / mm<input aria-label="分析 M2 间隙 mm" type="number" min="0.001" max="2000" step="0.1" value={mode === 'pump' ? savedGap : gap} disabled={mode === 'pump'} onChange={e => setGap(e.target.value)} /></label>
-      <label>热透镜焦距 / mm<select aria-label="分析热透镜焦距" disabled={mode === 'pump'} value={heat} onChange={e => setHeat(e.target.value)}><option value="">∞ · 冷腔</option>{[2000, 1000, 500, 200, 100, 50].map(f => <option value={f} key={f}>{f}</option>)}</select></label>
+      <label>热透镜试算焦距 / mm<select aria-label="分析热透镜焦距" disabled={mode === 'pump'} value={heat} onChange={e => setHeat(e.target.value)}><option value="">∞ · 冷腔</option>{[2000, 1000, 500, 200, 100, 50].map(f => <option value={f} key={f}>{f}</option>)}</select></label>
       <label>曲线采样<select aria-label="曲线采样密度" value={samples} onChange={e => setSamples(Number(e.target.value))}><option value="300">300 · 快速</option><option value="900">900 · 精细</option><option value="2400">2400 · 高密度</option></select></label>
       <div className="oa-preview"><strong>实时计算预览</strong><small>保存的 M2 间隙 {number(savedGap, 3)} mm</small><button disabled={busy || !data || mode !== 'cavity' || !stable || Math.abs(Number(gap) - savedGap) < 1e-9} onClick={() => onAdoptGap(Number(gap))}>将此间隙用于新设计 →</button></div>
     </div>
@@ -169,7 +169,14 @@ export default function OpticalAnalysis({ caseId, revisionId, revisionNumber, ca
     {data && <div className="oa-details"><div className="oa-detail-tabs">{[['points', '束腰与关键截面'], ['raw', '原始数值'], ['model', '模型与假设']].map(([key, name]) => <button className={detail === key ? 'active' : ''} onClick={() => setDetail(key)} key={key}>{name}</button>)}</div>
       {detail === 'points' && <><div className="oa-waists">{data.trace.waists.length ? data.trace.waists.map((w, i) => <article key={i}><small>解析束腰 {i + 1} · z {number(w.z_mm, 6)} mm</small><strong>w₀ {number(w.w_mm * 1000, 6)} μm</strong><span>局部 zR {number(w.z_R_mm, 6)} mm · 远场半角 {number(w.divergence_half_mrad, 5)} mrad</span></article>) : <p className="oa-note">当前范围内没有可报告的解析束腰。</p>}</div><div className="oa-table"><table><thead><tr><th>截面 / mm</th><th>取值侧</th><th>n</th><th>w / μm</th><th>R / mm</th></tr></thead><tbody>{boundRows.map((p, i) => <tr key={i}><td>{data.markers.filter(m => Math.abs(m.z_mm - p.z_mm) < 1e-7).map(m => m.label).join(' / ') || '截面'} · {number(p.z_mm, 6)}</td><td>{p.side}</td><td>{number(p.n, 6)}</td><td>{number(p.w_mm * 1000, 6)}</td><td>{number(p.R_mm, 5)}</td></tr>)}</tbody></table></div></>}
       {detail === 'raw' && <><div className="oa-pagination"><span>{data.trace.sample_count} 个传播采样点 · 保留内部精度，显示 8 位小数</span><button disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button><span>{page + 1} / {Math.max(1, Math.ceil(data.trace.points.length / 50))}</span><button disabled={(page + 1) * 50 >= data.trace.points.length} onClick={() => setPage(page + 1)}>下一页</button></div><div className="oa-table oa-raw"><table><thead><tr><th>z / mm</th><th>w / μm</th><th>R / mm</th><th>Re(q) / mm</th><th>Im(q) / mm</th><th>n</th></tr></thead><tbody>{data.trace.points.slice(page * 50, (page + 1) * 50).map((p, i) => <tr key={i}>{[p.z_mm, p.w_mm * 1000, p.R_mm, p.q_real_mm, p.q_imag_mm, p.n].map((v, j) => <td key={j}>{number(v, 8)}</td>)}</tr>)}</tbody></table></div></>}
-      {detail === 'model' && <div className="oa-model"><p>真空波长 {number(data.wavelength_nm, 2)} nm；q 定义：1/q = 1/R − iλ₀/(πnw²)。z 为物理坐标，所有透镜均为薄透镜模型。显示的小数位反映数值精度，不代表器件测量精度。</p>{data.notes.map((note, i) => <p key={i}>{note}</p>)}{mode === 'pump' && <p>等效 M² = {number(data.estimated_M2, 6)}；用于芯径 / NA 假设场景的二阶矩近似，不能据此确认实际光纤模场。</p>}{data.scan && <p>冷腔稳定间隙上界 d₂ &lt; {number(data.scan.cold_upper_exclusive_mm, 8)} mm。热透镜曲线为独立焦距场景，未从 6 W 泵浦推定实际焦距。</p>}<p>当前预览直接调用 ABCD 内核，不调用 LLM；不会修改已保存的设计坐标。采用新间隙后由 Agent 生成完整新版本。</p></div>}
+      {detail === 'model' && <div className="oa-model">
+        <p>真空波长 {number(data.wavelength_nm, 2)} nm。模型使用物理坐标 z 和薄透镜近似，1/q = 1/R − iλ₀/(πnw²)。</p>
+        {data.notes.map((note, i) => <p key={i}>{note}</p>)}
+        {mode === 'pump' && <p>等效 M² = {number(data.estimated_M2, 6)}。由标称芯径和 NA 推算的尺寸依赖源填充假设。</p>}
+        {data.scan?.cold_upper_exclusive_mm != null && <p>此冷腔的稳定间隙上界为 d₂ &lt; {number(data.scan.cold_upper_exclusive_mm, 8)} mm。</p>}
+        {data.scan && <p>每条热透镜曲线对应一个试算焦距。实际热焦距需要测量或热模型给出。</p>}
+        <p>此处调整间隙会重新计算 ABCD 预览。使用“将此间隙用于新设计”可保存另一份结果。</p>
+      </div>}
     </div>}
   </section>;
 }

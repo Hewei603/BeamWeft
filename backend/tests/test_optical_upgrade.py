@@ -13,6 +13,24 @@ from app.physics.caustic import fit_caustic
 from app.workbench.optics import analyze_system, scan_system_2d, OpticalSystem
 from app.workbench.projects import SaveProject, project_from_design, read_project, save_project
 from app.models import ExperimentCase
+from app.workbench.optics import PropagationStudySystem
+from app.workbench.studies import _propagate
+
+
+def test_transfer_geometry_without_source_size():
+    def trace(elements):
+        return _propagate(PropagationStudySystem(mode="single_pass", wavelength_nm=635, elements=elements))
+    output = trace([{"name":"透镜","kind":"thick_lens","n":1.5,"length_mm":3,"front_radius_mm":50},
+                    {"name":"间隔","kind":"space","length_mm":20}, {"name":"平板","kind":"space","length_mm":6,"n":1.5}])
+    assert output["status"] == "partial" and "exit_field" not in output
+    for plane in output["planes"].values():
+        assert plane["collimated_focus_from_exit_mm"] == pytest.approx(74)
+        assert "output" not in plane and plane["samples"] == []
+    astigmatic = trace([{"name":"柱面负光焦度","kind":"matrix",
+                          "matrix_t":[1,0,.02,1],"matrix_s":[1,0,0,1]}])
+    assert astigmatic["planes"]["tangential"]["collimated_focus_from_exit_mm"] == pytest.approx(-50)
+    assert astigmatic["planes"]["sagittal"]["collimated_focus_note"]
+    assert "collimated_focus_from_exit_mm" not in astigmatic["planes"]["sagittal"]
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +96,7 @@ def test_m2_single_pass_matches_second_moment_divergence():
                           "elements": [{"kind": "space", "name": "air", "length_mm": 100}]})
     expected = math.sqrt(.1**2+(3*808e-6*100/(math.pi*.1))**2)
     assert out["planes"]["tangential"]["output"]["radius_mm"] == pytest.approx(expected)
+    assert out["intensity_model"] == "width_only"
     with pytest.raises(ValueError, match="eigenmode"):
         OpticalSystem(mode="standing_wave", wavelength_nm=1064, beam_quality_m2=2, elements=[{"kind": "mirror", "name": "M1"}, {"kind": "space", "name": "gap", "length_mm": 10}, {"kind": "mirror", "name": "M2", "radius_mm": 200}])
 

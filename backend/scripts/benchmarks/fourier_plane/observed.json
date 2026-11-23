@@ -1,0 +1,19 @@
+{
+  "scored_at_utc": "2026-11-19T17:55:12.277276+00:00",
+  "freeze_sha256": "13698b7f8d6a1476c59d462ff8a9bafadaecddb4ba7e42147ecd56cdb5f20d40",
+  "capture_sha256": "9a593fde7104f09c82e78b310b921c9b72d676e47d845d9094c6d0f14dee22a1",
+  "shape_pearson": 0.9406980886675442,
+  "unchanged_training_shape_pearson": 0.8881942855183632,
+  "absolute_shape_rms": 0.38654831464258194,
+  "unchanged_shape_rms": 0.4807874808874633,
+  "change_pearson_in_disk": 0.930405058970905,
+  "change_rms_in_disk": 0.3139494930209984,
+  "unchanged_rms_in_disk": 0.6397101293143092,
+  "change_rmse_improvement_fraction": 0.5092316369016796,
+  "training_roi_clipped_fraction": 0.04137786179374081,
+  "held_roi_counts_at_or_above_1022_fraction": 0.07150546103759714,
+  "held_roi_max_dn": 1022.0,
+  "shape_pass": true,
+  "change_pass": true,
+  "joint_pass": true
+}

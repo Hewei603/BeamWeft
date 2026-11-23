@@ -1,0 +1,39 @@
+.network-bench{display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,28%);border-top:1px solid #304251}
+.network-canvas{min-width:0;padding:16px;background:#111e29;color:#dce8ec}
+.network-canvas header,.network-row,.network-reading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.network-canvas header span,.network-canvas .bench-hint{font-size:.82rem;color:#aabec8}
+.port-diagram{display:block;width:100%;height:clamp(16rem,40vh,28rem);background-image:radial-gradient(#57788769 1px,transparent 1px);background-size:18px 18px}
+.port-diagram[data-pannable]{cursor:grab}
+.port-diagram:focus-visible{outline:2px solid #e2b675;outline-offset:-2px}
+.network-view-actions{display:flex;align-items:center;flex-wrap:wrap;gap:.35rem;margin:.45rem 0}
+.network-view-actions span{font: .76rem ui-monospace,monospace;color:#b8cbd3;text-align:center;min-width:3ch}
+.network-view-actions button{font:inherit;font-size:.83rem;border:1px solid #405668;border-radius:.3rem;padding:.3rem .55rem;color:#d8e9eb;background:#192d3a;cursor:pointer}
+.network-view-actions button:disabled{opacity:.48;cursor:default}
+.port-diagram path{fill:none;stroke-width:2.2}
+.port-upstream>path{stroke:#b79865;stroke-dasharray:5 3}
+.port-upstream>rect{fill:#192b37;stroke:#7d7966}
+.port-upstream .source-caption{color:#dbe8ed;font:11px/20px system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.port-upstream .upstream-title{color:#f4ce91;font-weight:600}
+.port-upstream .upstream-hit{fill:transparent;stroke:none}
+.port-upstream [role=button]{cursor:pointer}
+.port-upstream [role=button]:is(:hover,:focus-visible) .upstream-hit{fill:#324858}
+.port-link{stroke:#6db6b6}.selected-link{stroke:#ffd38b}
+.port-diagram .link-target{stroke:transparent;stroke-width:14;cursor:pointer}
+.link-note,.port-pin .port-watts{font:9px system-ui,sans-serif;fill:#bddbdc;paint-order:stroke;stroke:#111e29;stroke-width:3px}
+.port-pin.source .port-watts{fill:#f0ca87}
+.port-body{cursor:grab;touch-action:none}.port-body:active{cursor:grabbing}
+.port-body rect{fill:#203746;stroke:#5a8593;stroke-width:1.4}.port-body .selected-node{stroke:#e9b465}
+.port-body text,.port-pin text{fill:#e5eff1;font:12px system-ui,sans-serif;pointer-events:none}
+.port-pin text{font-size:9px}.port-pin{cursor:pointer}.port-pin circle{fill:#77c5c6;stroke:#12303c}
+.port-pin .pin-target{fill:transparent;stroke:none}.port-pin.source circle:not(.pin-target){fill:#e9b465}
+.port-pin.active circle:not(.pin-target),.port-pin:focus circle:not(.pin-target){stroke:white;stroke-width:2.2}
+.network-inspector{min-width:0;margin:0;padding:12px;display:grid;align-content:start;gap:9px;border:0;border-left:1px solid #344854}
+.network-inspector label{display:grid;gap:4px;min-width:0;font-size:.83rem}.network-inspector select,.network-inspector input,.network-inspector textarea{width:100%;min-width:0}
+.network-inspector button,.network-inspector input,.network-inspector textarea,.network-inspector select{font:inherit;color:#e2ebee;border:1px solid #405668;border-radius:5px;background:#152431;padding:6px 8px}
+.network-inspector button{cursor:pointer;background:#243b49}.network-inspector button:hover{border-color:#6fa8aa}
+.network-inspector :focus-visible,.port-diagram [role=button]:focus-visible{outline:2px solid #e2b675;outline-offset:2px}
+.network-inspector .bench-quantity{display:inline;padding:1px 4px;color:#9ee6df}
+.network-inspector details{border-top:1px solid #45545e;padding:8px 0}.network-inspector details label{margin:6px 0}
+.network-inspector summary{cursor:pointer}.network-inspector p,.network-balance{font-size:.83rem;line-height:1.5}
+.network-reading{display:block;min-height:1.65em;color:#a6dedb}.network-row>*{flex:1}
+@media(max-width:760px){.network-bench{grid-template-columns:1fr}.network-inspector{border-left:none;border-top:1px solid #344854}.port-diagram{height:clamp(12rem,32dvh,20rem)}}

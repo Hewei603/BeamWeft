@@ -7,7 +7,7 @@ from ..database import Base
 
 
 class ExperimentCase(Base):
-    """A laser experiment case managed by LaserClaw."""
+    """A laser experiment case managed by BeamWeft."""
 
     __tablename__ = "experiment_cases"
 

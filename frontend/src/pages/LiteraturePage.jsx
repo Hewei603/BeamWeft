@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { casesApi } from '../api/cases';
 import { literatureApi } from '../api/literature';
 import { LiteratureSearchResult } from '../components/ModuleResults';
 import { useLanguage } from '../LanguageContext';
+import { CaseSelect } from '../components/CaseBrowser';
 
 // Standalone literature search: look something up without creating a case
 // first. "存入案例" replays the same search as a case module, so the archived
@@ -13,14 +14,10 @@ function LiteraturePage() {
   const [result, setResult] = useState(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
-  const [cases, setCases] = useState([]);
   const [saveCaseId, setSaveCaseId] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedNote, setSavedNote] = useState(null);
 
-  useEffect(() => {
-    casesApi.list().then((data) => setCases(Array.isArray(data) ? data : [])).catch(() => setCases([]));
-  }, []);
 
   const handleSearch = async (event) => {
     event.preventDefault();
@@ -116,19 +113,15 @@ function LiteraturePage() {
           )}
           {result.status === 'completed' && (
             <>
-              {cases.length > 0 && (
                 <div className="action-row no-print">
-                  <select value={saveCaseId} onChange={(e) => setSaveCaseId(e.target.value)}>
-                    <option value="">{t('literaturePage.pickCase')}</option>
-                    {cases.map((c) => <option key={c.id} value={c.id}>#{c.id} {c.title}</option>)}
-                  </select>
+                  <CaseSelect value={saveCaseId} onChange={setSaveCaseId} disabled={saving}
+                    label={t('literaturePage.saveToCase')} emptyLabel={t('literaturePage.pickCase')}/>
                   <button className="btn btn-secondary" type="button"
                     disabled={!saveCaseId || saving} onClick={handleSaveToCase}>
                     {saving ? t('literaturePage.saving') : t('literaturePage.saveToCase')}
                   </button>
                   {savedNote && <span className="muted">{savedNote}</span>}
                 </div>
-              )}
               <LiteratureSearchResult result={result} />
             </>
           )}

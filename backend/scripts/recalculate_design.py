@@ -20,6 +20,7 @@ from app.design.rezonator import cold_cavity_schema  # noqa: E402
 from app.design.service import inventory_snapshot  # noqa: E402
 from app.design.solver import solve_design  # noqa: E402
 from app.models import AgentChatMessage, AgentTask, AgentToolCall, ExperimentCase, GeneratedContent  # noqa: E402
+from app.version import APP_NAME
 from app.workbench.projects import read_project  # noqa: E402
 from app.workbench.service import session_for_case  # noqa: E402
 from app.workbench.tools import REGISTRY, execute  # noqa: E402
@@ -48,7 +49,7 @@ async def run(args):
             task = AgentTask(case_id=case.id, mode="workbench", goal="直接内核复算（未调用模型）：" + evidence["sources"].get("message", "依据可核对事实复算"), status="running")
             db.add(task)
             db.flush()
-            plan = GeneratedContent(case_id=case.id, content_type="plan", model="LaserClaw Python/NumPy", prompt_version="direct-kernel-v34",
+            plan = GeneratedContent(case_id=case.id, content_type="plan", model=f"{APP_NAME} Python/NumPy", prompt_version="direct-kernel-v34",
                                     content={"title": case.title + " · 实物约束复算", "engineering_design": design, "summary": design["summary"], "execution_mode": "direct_kernel_no_llm"})
             db.add(plan)
             db.flush()
@@ -90,7 +91,7 @@ async def run(args):
                           "next_steps": ["向腔镜供应商索取 M1 基底材料、中心厚度、背面曲率，以及 M2 的 T@1064 数据。",
                                          "也可记录经过现有两片透镜与 M1 后的 808 nm 光束在多个 z 位置的半径，连同半径定义交给 Agent；新增焦散拟合工具可求实际焦点和等效 M²。",
                                          "热态模场需实际热透镜或测量约束；当前 ∞/500/200/100/50 mm 为敏感性场景。"], "execution_mode": "direct_kernel_no_llm"}
-                final = GeneratedContent(case_id=case.id, content_type="workbench", model="LaserClaw Python/NumPy", prompt_version="direct-kernel-v34", content={"workbench": result, "summary": summary, "task_id": task.id, "execution_mode": "direct_kernel_no_llm"})
+                final = GeneratedContent(case_id=case.id, content_type="workbench", model=f"{APP_NAME} Python/NumPy", prompt_version="direct-kernel-v34", content={"workbench": result, "summary": summary, "task_id": task.id, "execution_mode": "direct_kernel_no_llm"})
                 db.add(final)
                 db.flush()
                 task.status, task.final_content_id = "partial", final.id

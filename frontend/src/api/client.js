@@ -1,6 +1,12 @@
 import axios from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+export const openedCase = globalThis.document?.querySelector('meta[name="laserclaw-case-copy"]')?.content;
+const nativeTag = globalThis.document?.querySelector('meta[name="laserclaw-native-file"]');
+export const nativeFileSource = nativeTag?.dataset.path ? {
+  caseId: nativeTag.content, label: nativeTag.dataset.label, path: nativeTag.dataset.path,
+} : null;
+const libraryOrigin = globalThis.document?.querySelector('meta[name="beamweft-api-origin"]')?.content;
+export const API_BASE_URL = openedCase ? window.location.origin : (libraryOrigin || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -18,7 +24,11 @@ const formatErrorDetail = (detail) => {
   }
   if (Array.isArray(detail)) {
     return detail
-      .map((item) => item?.msg || item?.message || JSON.stringify(item))
+      .map((item) => {
+        const path=Array.isArray(item?.loc) ? item.loc.filter(key=>key!=='body').join('.') : '';
+        const message=item?.msg || item?.message || JSON.stringify(item);
+        return path ? path+' · '+message : message;
+      })
       .join('; ');
   }
   return detail.message || detail.error || JSON.stringify(detail);
@@ -26,7 +36,8 @@ const formatErrorDetail = (detail) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error);
     if (error.response) {
       const statusHints = {
         400: '请求内容有误，请检查填写内容',
@@ -34,22 +45,31 @@ apiClient.interceptors.response.use(
         403: '当前账号权限不足',
         404: '请求的内容不存在',
         409: '操作和当前状态冲突',
-        413: '文件太大，超过了上传上限（50MB）',
-        422: '填写内容的格式不正确，请检查输入',
+        413: '文件超过本服务的上传上限',
+        422: '请核对输入是否满足本次操作的要求',
         500: '服务器内部错误，请稍后再试',
         501: '服务端缺少该功能所需的依赖，请联系维护者',
         502: 'AI 服务返回错误',
         503: '服务暂时不可用，请稍后再试',
       };
       const hint = statusHints[error.response.status];
-      const detail = formatErrorDetail(error.response.data?.detail || error.response.statusText);
+      let responseData=error.response.data;
+      if(responseData instanceof Blob && /json/i.test(responseData.type)){
+        try {responseData=JSON.parse(await responseData.text());}catch{/* Fall back to the status for a malformed error body. */}
+      }
+      const explanation = responseData?.detail;
+      const detail = formatErrorDetail(explanation || error.response.statusText);
       console.error('API error', error.response.status, detail);
-      return Promise.reject(new Error(hint ? `${hint}（${detail}）` : `${error.response.status}: ${detail}`));
+      const validationMessage = error.response.status === 422 && typeof explanation === 'string' && explanation.trim();
+      const message = validationMessage || (hint ? `${hint}（${detail}）` : `${error.response.status}: ${detail}`);
+      const failure = new Error(message);
+      failure.status = error.response.status;
+      return Promise.reject(failure);
     }
 
     if (error.request) {
       console.error('API unreachable', API_BASE_URL);
-      return Promise.reject(new Error(`无法连接后端服务（${API_BASE_URL}），请确认后端已启动。`));
+      return Promise.reject(new Error(`未收到服务端回执。请检查与 ${API_BASE_URL} 的连接。`));
     }
 
     return Promise.reject(new Error(error.message || 'Unexpected API error'));

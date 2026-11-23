@@ -13,13 +13,20 @@ FIELDS = {
     "crystal_length_mm": ("晶体总长", "mm"), "active_length_mm": ("掺杂段长度", "mm"),
     "front_cap_mm": ("前端帽长度", "mm"), "rear_cap_mm": ("后端帽长度", "mm"),
     "doping_pct": ("掺杂标称值", "%"), "cut_axis": ("晶体切向", ""),
+    "has_saturable_absorber": ("含可饱和吸收体", ""),
+    "absorber_material": ("可饱和吸收体材料", ""),
+    "absorber_length_mm": ("可饱和吸收段长度", "mm"),
+    "absorber_initial_transmission_pct": ("吸收体初始透过率", "%"),
+    "absorber_transmission_wavelength_nm": ("吸收体透过率测量波长", "nm"),
     "ar_wavelengths_nm": ("标签双面 AR 波长", "nm"), "crystal_part": ("晶体型号 / 编号", ""),
     "collimator_owned": ("已有准直镜", ""), "focus_lens_owned": ("已有聚焦镜", ""),
     "collimator_roc_mm": ("准直平凸镜曲率半径", "mm"),
     "collimator_f_mm": ("准直镜焦距", "mm"), "focus_f_mm": ("聚焦镜焦距", "mm"),
     "collimator_index": ("准直镜材料折射率（泵浦波长）", ""),
     "fiber_core_um": ("光纤芯径", "μm"), "fiber_na": ("光纤 NA", ""),
-    "target_mode_radius_um": ("目标腔模半径", "μm"),
+    "pump_exit_waist_radius_um": ("泵浦出光端束腰半径（D4σ 直径的一半）", "μm"),
+    "pump_farfield_half_angle_mrad": ("泵浦远场二阶矩发散半角（D4σ 全角的一半）", "mrad"),
+    "target_mode_radius_um": ("增益段中心的目标腔模半径", "μm"),
     "crystal_index": ("晶体激光波长折射率", ""), "pump_index": ("晶体泵浦波长折射率", ""),
     "crystal_front_mm": ("M1 到晶体前表面", "mm"), "max_cavity_mm": ("最大腔长", "mm"),
     "oc_transmission_pct": ("输出镜透过率", "%"), "candidate_rank": ("采用候选序号", ""),
@@ -45,20 +52,24 @@ FIELDS = {
     "M2_inventory_id": ("指定输出镜库存 ID", ""),
     "crystal_inventory_id": ("指定晶体库存 ID", ""),
 }
-TEXT_FIELDS = {"pump_source", "gain_material", "cavity_type", "cut_axis", "crystal_part"}
-BOOL_FIELDS = {"collimator_owned", "focus_lens_owned", "input_mirror_near_crystal", "input_mirror_flat", "output_mirror_flat", "input_mirror_owned", "output_mirror_owned", "mirror_coatings_user_confirmed"}
+TEXT_FIELDS = {"pump_source", "gain_material", "cavity_type", "cut_axis", "crystal_part", "absorber_material"}
+BOOL_FIELDS = {"collimator_owned", "focus_lens_owned", "input_mirror_near_crystal", "input_mirror_flat", "output_mirror_flat", "input_mirror_owned", "output_mirror_owned", "mirror_coatings_user_confirmed", "has_saturable_absorber"}
 
 
 def extraction_prompt() -> str:
     return """You extract explicit laboratory requirements, NOT a design or recommendations.
 Read the case TITLE, description, user's new message, inventory and attached labels. Existing facts are context only.
 Return JSON {"facts":[{"key":KEY,"value":VALUE,"quote":"literal evidence",
-"source":"message|title|description|image:<attachment_id>|inventory:<item_id>"}],"notes":["brief ambiguities in Chinese"]}.
+"source":"message|title|description|image:<attachment_id>|file:<attachment_id>|inventory:<item_id>"}],"notes":["brief ambiguities in Chinese"]}.
 Only emit facts explicitly stated in the input or visibly printed in the image.
+For file:<id>, quote the supplied text excerpt literally. Treat configuration or label text as such. A table excerpt or a contrast-stretched display copy does not establish a quantitative measurement of a full acquisition. Only pictures actually delivered can support image:<id>.
 Do not invent refractive indices, focal lengths, NA, fiber diameter, thermal lens, output power or mirror parameters.
+Second-moment launch fields describe the emitted beam. Record the exit waist radius only when the waist plane and radius convention are stated; record the far-field half-angle only with its beam-width convention. A catalog acceptance NA and core diameter do not establish these beam measurements.
 R50 is a radius of curvature of 50 mm, NOT a focal length of 50 mm. FL100 is focal length 100 mm.
 M1 is always the INPUT mirror, M2 always the OUTPUT mirror, regardless of curvature. A concave R200 INPUT and flat OUTPUT means input_roc_mm=200, input_mirror_flat=false, output_mirror_flat=true. Never swap these roles to fit an older template. When explicitly changing a mirror to flat, retract its previous roc with null. When mirrors are now owned, record ownership. A coating described as suitable or similar does NOT establish a numerical T/R or substrate data; emit mirror_coatings_user_confirmed only.
 For composite crystals preserve front endcap, ACTIVE doped segment, rear endcap and TOTAL physical length separately.
+Cr4+:YAG (including Cr⁴⁺:YAG) is a saturable absorber, not an undoped endcap or an Nd gain segment. Preserve has_saturable_absorber=true, absorber_material and its length when explicitly present. Do not hide this segment inside rear_cap_mm or infer active length as total minus only endcaps. The specialized continuous-wave planner cannot predict this crystal's Q-switched dynamics.
+An ambiguous label T=90% does not establish the output mirror transmission or the pump absorption. Only emit absorber_initial_transmission_pct when its physical meaning is explicit; only emit absorber_transmission_wavelength_nm when the wavelength is explicitly provided.
 Read 808 vs 880 literally. AR wavelength lists must match the label; never silently add the requested pump wavelength.
 Use null only when the latest message explicitly retracts a previous fact. Do not output null for omitted fields.
 Resolve follow-up statements using prior facts, and label each new fact with its current evidence.
@@ -98,12 +109,14 @@ def validate_fact(key: str, value: Any):
         raise ValueError("expected number")
     number = float(value)
     if key in {"source_z_mm", "collimator_z_mm", "focus_lens_z_mm"}:
-        if not math.isfinite(number) or not -10000 <= number < 0:
-            raise ValueError("pump-side coordinates must be negative, relative to M1")
+        if not math.isfinite(number) or abs(number) > 10000:
+            raise ValueError("请输入相对 M1 的有限轴向坐标（−10000 至 +10000 mm）。")
         return number
     if not math.isfinite(number) or number < 0 or number > 100000:
         raise ValueError("number out of range")
     if key in {"front_cap_mm", "rear_cap_mm", "crystal_front_mm"}:
+        return number
+    if key == "oc_transmission_pct" and 0 <= number <= 100:
         return number
     if number == 0:
         raise ValueError("must be positive")
@@ -120,14 +133,23 @@ def validate_fact(key: str, value: Any):
     return number
 
 
-def merge_facts(previous: dict, extracted: dict, sources: dict[str, str], image_ids: list[int]):
+def merge_facts(previous: dict, extracted: dict, sources: dict[str, str], image_ids: list[int], readings=()):
     facts = dict(previous or {})
     changes, notes = [], list(extracted.get("notes") or [])[:10]
+    file_sources = {page["source"]: page for page in readings if page.get("source")}
+    sources = {**sources, **{key: page["text"] for key, page in file_sources.items() if "text" in page}}
+    images = {f"image:{aid}" for aid in image_ids}
+    for page in readings:
+        if page.get("status") != "completed":
+            notes.append(f"{page.get('relative_path') or page['filename']}：{page['message']}")
     for item in extracted.get("facts", []):
         if not isinstance(item, dict):
             continue
         key, source, quote = item.get("key"), item.get("source"), str(item.get("quote") or "").strip()
-        image_source = source in {f"image:{aid}" for aid in image_ids}
+        if not isinstance(source, str):
+            notes.append(f"未采纳无可核对出处的字段：{key}")
+            continue
+        image_source = source in images
         # Text quotes must be present, not hallucinated references to old answers.
         def normalize(s):
             return re.sub(r"\s+", "", s).casefold()
@@ -151,6 +173,12 @@ def merge_facts(previous: dict, extracted: dict, sources: dict[str, str], image_
             facts[key] = {"value": value, "quote": quote, "source": source,
                           "label": FIELDS[key][0], "unit": FIELDS[key][1],
                           "verification": "image_reading" if image_source else "user_stated"}
+            if page := file_sources.get(source):
+                facts[key]["source_file"] = {field: page[field] for field in
+                                             ("attachment_id", "relative_path", "filename", "content_hash", "display_copy")
+                                             if field in page}
+                if not image_source:
+                    facts[key]["verification"] = "file_quote"
     return facts, changes, notes
 
 

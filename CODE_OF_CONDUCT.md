@@ -1,6 +1,6 @@
 # Code of Conduct
 
-LaserClaw contributors are expected to keep technical discussion respectful, specific, and evidence-based.
+BeamWeft contributors are expected to keep technical discussion respectful, specific, and evidence-based.
 
 ## Expected Behavior
 

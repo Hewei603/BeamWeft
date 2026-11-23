@@ -10,7 +10,7 @@ legacy data there the first time the new location is empty.
 
 Copy, never move — and never through the final name: everything is copied to a
 ``*.copying`` staging name first and atomically renamed into place. A user
-closing the console window mid-copy (the documented way to stop LaserClaw)
+closing the console window mid-copy (the documented way to stop BeamWeft)
 therefore leaves only staging debris, which is deleted and re-copied on the
 next start; the "target exists → it is the source of truth" guard can never be
 fooled by a half-written file.

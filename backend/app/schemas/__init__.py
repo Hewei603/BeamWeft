@@ -1,8 +1,8 @@
 """Pydantic request and response schemas."""
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
 
 class ExperimentCaseBase(BaseModel):
@@ -10,7 +10,7 @@ class ExperimentCaseBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     cavity_type: str = Field(default="custom", pattern="^(linear|ring|bow-tie|custom)$")
-    goal: str = Field(default="待通过设计对话明确", min_length=1)
+    goal: str = ""
     status: str = Field(default="draft", pattern="^(draft|active|paused|completed|archived)$")
     visibility: str = Field(default="project", pattern="^(private|project|organization)$")
     schema_version: str = "case_v2"
@@ -24,7 +24,7 @@ class ExperimentCaseBase(BaseModel):
 
 
 class ExperimentCaseCreate(ExperimentCaseBase):
-    pass
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 
 
 class ExperimentCaseUpdate(BaseModel):
@@ -32,7 +32,7 @@ class ExperimentCaseUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     cavity_type: Optional[str] = Field(None, pattern="^(linear|ring|bow-tie|custom)$")
-    goal: Optional[str] = Field(None, min_length=1)
+    goal: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(draft|active|paused|completed|archived)$")
     visibility: Optional[str] = Field(None, pattern="^(private|project|organization)$")
     schema_version: Optional[str] = None
@@ -59,7 +59,16 @@ class AttachmentResponse(BaseModel):
     filename: str
     file_type: Optional[str] = None
     content_hash: Optional[str] = None
+    upload_id: Optional[str] = None
+    relative_path: Optional[str] = None
+    index_note: Optional[str] = None
     uploaded_at: datetime
+
+    @computed_field
+    @property
+    def read_mode(self) -> str:
+        from ..attachment_files import file_mode
+        return file_mode(self.filename, self.file_type)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -493,6 +502,7 @@ class InventoryItemResponse(BaseModel):
     id: int
     category: str
     name: str
+    source_file: Optional[str] = None
     diameter_mm: Optional[float] = None
     roc_mm: Optional[float] = None
     roc_is_flat: Optional[bool] = None
@@ -504,6 +514,7 @@ class InventoryItemResponse(BaseModel):
     cut_axis: Optional[str] = None
     doping_pct: Optional[float] = None
     material: Optional[str] = None
+    crystal_spec: Optional[Dict[str, Any]] = None
     quantity: Optional[float] = None
     location: Optional[str] = None
     keeper: Optional[str] = None

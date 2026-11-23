@@ -17,7 +17,7 @@ from .records import PaperRecord
 
 # NOTE: no `proxies=` kwarg anywhere — removed in httpx 0.28, which our
 # version range allows. trust_env stays default so a system proxy still works.
-_USER_AGENT = f"LaserClaw/{APP_VERSION}"
+_USER_AGENT = f"BeamWeft/{APP_VERSION}"
 
 
 def _http_get_json(url: str, params: dict[str, Any], timeout_s: float) -> dict:

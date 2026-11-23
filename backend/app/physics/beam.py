@@ -27,8 +27,16 @@ Conventions (fixed across the module):
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
+
+
+def gaussian_product_density(w1, w2, displacement):
+    """Integral of two normalized 1D Gaussian intensity profiles, each with 1/e² radius w."""
+    width = math.hypot(w1, w2)
+    distance = displacement / width
+    return math.sqrt(2 / math.pi) / width * math.exp(-2 * distance * distance)
 
 
 # --------------------------------------------------------------------------

@@ -16,6 +16,7 @@ Tools:
 from __future__ import annotations
 
 from typing import Any
+from math import ceil, isfinite, ulp
 
 from . import beam as B
 from . import nonlinear as NL
@@ -24,6 +25,10 @@ from .coating_tool import evaluate_coating
 run_coating_tmm = evaluate_coating
 
 _FLAT_ROC_MM = 1e15  # numerically-flat mirror
+
+
+def _cavity_mirror(radius):
+    return B.mirror_flat() if radius >= _FLAT_ROC_MM else B.mirror_curved(radius)
 
 
 def _roc(value: Any) -> float | None:
@@ -35,11 +40,13 @@ def _roc(value: Any) -> float | None:
         if v in ("flat", "inf", "infinite", "plane", "平镜", ""):
             return _FLAT_ROC_MM
         try:
-            return abs(float(v))
+            parsed = float(v)
+            return parsed if isfinite(parsed) and parsed != 0 else None
         except ValueError:
             return None
     try:
-        return abs(float(value))
+        parsed = float(value)
+        return parsed if not isinstance(value, bool) and isfinite(parsed) and parsed != 0 else None
     except (TypeError, ValueError):
         return None
 
@@ -75,7 +82,7 @@ def _cavity_elements(l_mm: float, r2_mm: float, r1_mm: float, crystal: dict | No
             B.Element("crystal exit (return)", B.interface_flat(n, 1.0), 1.0),
             B.Element("crystal -> M1", B.free_space(pos), 1.0),
         ]
-    round_trip = [el.M for el in fwd] + [B.mirror_curved(r2_mm)] + [el.M for el in rev] + [B.mirror_curved(r1_mm)]
+    round_trip = [el.M for el in fwd] + [_cavity_mirror(r2_mm)] + [el.M for el in rev] + [_cavity_mirror(r1_mm)]
     return round_trip, fwd
 
 
@@ -105,23 +112,28 @@ def beam_envelope(
       per segment from ``Re(q) = 0``, which is exact and independent of the
       sampling step, and can legitimately land inside the crystal.
 
-    Returns ``{"points": [{z_mm, w_mm, n}], "waist": {...} | None, "note": str}``;
-    ``points`` is empty when the cavity has no confined mode, because drawing an
-    envelope for an unstable cavity would assert something false.
+    A located waist includes either mirror plane. A convex mirror in a stable
+    two-mirror cavity gives an extrapolated waist outside the physical path.
+    Older archived envelopes can contain a null waist without this distinction.
     """
     round_trip, fwd = _cavity_elements(l_mm, r2_mm, r1_mm, crystal)
-    q = B.cavity_mode_q(B.system_matrix(round_trip))
+    matrix = B.system_matrix(round_trip)
+    q = B.cavity_mode_q(matrix)
     if q is None:
-        return {"points": [], "waist": None,
-                "note": "该腔长不稳定,没有自洽基模,无法给出光束包络。"}
+        if B.stability(matrix)["stable"]:
+            return {"points": [], "waist": None, "waist_location": "unresolved",
+                    "note": "往返矩阵在数值退化附近，本次未能确定自洽基模包络。"}
+        return {"points": [], "waist": None, "waist_location": "no_confined_mode",
+                "note": "该腔长不稳定或处于临界条件，无法确定受限基模包络。"}
 
     span = sum(el.length_mm for el in fwd) or float(l_mm)
     step = max(span / max(int(samples), 8), 1e-6)
 
     z = 0.0
-    n_local = 1.0
-    points = [{"z_mm": 0.0, "w_mm": round(B.w_from_q(q, wavelength_nm, n_local), 6), "n": n_local}]
+    points = [{"z_mm": 0.0, "w_mm": round(B.w_from_q(q, wavelength_nm, 1.0), 6), "n": 1.0}]
     waist: dict[str, float] | None = None
+    propagation = [el for el in fwd if el.length_mm > 0]
+    exterior = r1_mm < 0 or r2_mm < 0
 
     for el in fwd:
         if el.length_mm <= 0:
@@ -129,34 +141,45 @@ def beam_envelope(
             # w is continuous across a flat interface, so no point is emitted —
             # a second point at the same z would only add a redundant vertex.
             q = B.propagate_q(el.M, q)
-            n_local = el.n_after
             continue
 
-        # Exact waist inside this segment: q(dz) = q + dz, minimal w at Re(q)=0.
+        # A flat end mirror requires a plane wavefront there. Use that boundary
+        # condition directly: round-off in the round-trip root can put Re(q)
+        # just to the wrong side. A convex mirror's virtual waist stays outside.
         dz_star = -q.real
-        if 0.0 <= dz_star <= el.length_mm:
-            q_waist = B.propagate_q(B.free_space(dz_star), q)
+        if el is propagation[0] and r1_mm >= _FLAT_ROC_MM:
+            dz_star = 0.0
+        elif el is propagation[-1] and r2_mm >= _FLAT_ROC_MM:
+            dz_star = el.length_mm
+        # Interior interfaces use physical lengths and a few float spacings for
+        # the ABCD arithmetic. Neither the plotted sample pitch nor the number
+        # of displayed decimals determines whether a waist is in the cavity.
+        edge_roundoff = 8 * max(ulp(span), ulp(dz_star))
+        if not exterior and -edge_roundoff <= dz_star <= el.length_mm + edge_roundoff:
+            dz_star = min(max(dz_star, 0.0), el.length_mm)
+            q_waist = q + dz_star
             w0 = B.w_from_q(q_waist, wavelength_nm, el.n_after)
             if waist is None or w0 < waist["w0_mm"]:
                 waist = {"z_mm": round(z + dz_star, 4), "w0_mm": round(w0, 6),
                          "in_medium_n": el.n_after}
 
-        remaining = float(el.length_mm)
-        while remaining > 1e-9:
-            dz = min(step, remaining)
-            q = B.propagate_q(B.free_space(dz), q)
-            z += dz
-            remaining -= dz
+        # Within each homogeneous segment q(dz) = q(0) + dz. Reference every
+        # sample to the same start so changing the point count cannot move a face.
+        count = max(1, ceil(el.length_mm / step))
+        for i in range(1, count + 1):
+            dz = el.length_mm if i == count else i * step
             points.append({
-                "z_mm": round(z, 4),
-                "w_mm": round(B.w_from_q(q, wavelength_nm, el.n_after), 6),
+                "z_mm": round(z + dz, 4),
+                "w_mm": round(B.w_from_q(q + dz, wavelength_nm, el.n_after), 6),
                 "n": el.n_after,
             })
-        n_local = el.n_after
+        q += el.length_mm
+        z += el.length_mm
 
     return {
         "points": points,
         "waist": waist,
+        "waist_location": "inside" if waist is not None else "outside" if exterior else "unresolved",
         "note": "冷腔基模包络(未包含热透镜);z 为距 M1 的物理距离,w 为光斑半径。",
     }
 
@@ -167,7 +190,7 @@ def _analyze_length(l_mm: float, r1_mm: float, r2_mm: float, wavelength_nm: floa
     m_rt = B.system_matrix(round_trip)
     st = B.stability(m_rt)
     out: dict[str, Any] = {
-        "length_mm": round(l_mm, 4),
+        "length_mm": float(l_mm),
         "stability_m": round(st["m"], 6),
         "stable": st["stable"],
     }
@@ -221,9 +244,20 @@ def run_cavity_design(config: dict[str, Any]) -> dict[str, Any]:
                 "message": "crystal 参数需为字典 {\"n\": 折射率, \"thickness_mm\": 厚度, "
                            "\"position_mm\": 距M1位置}。如果你填的是倍频晶体名(如 lbo),"
                            "请改用相位匹配模块的 crystal 字段。"}
-    if crystal and "n" not in crystal:
-        return {"status": "needs_input",
-                "message": "crystal 字典缺少 'n'(折射率)或 'thickness_mm'(厚度 mm)。"}
+    if crystal:
+        if "n" not in crystal or "thickness_mm" not in crystal:
+            return {"status": "needs_input",
+                    "message": "crystal 字典缺少 'n'(折射率)或 'thickness_mm'(厚度 mm)。"}
+        try:
+            n, thickness = float(crystal["n"]), float(crystal["thickness_mm"])
+            if not (isfinite(n) and n > 0 and isfinite(thickness) and thickness >= 0):
+                raise ValueError
+            if "position_mm" in crystal and not (0 <= float(crystal["position_mm"]) < float("inf")):
+                raise ValueError
+        except (TypeError, ValueError):
+            return {"status": "needs_input", "message": "请核对晶体折射率、厚度与位置。折射率须为正，长度须为非负有限值（mm）。"}
+    # Imported here because the design search shares the matrix routines above.
+    from .design import thermal_lens_margin
 
     base = {
         "status": "completed",
@@ -245,10 +279,11 @@ def run_cavity_design(config: dict[str, Any]) -> dict[str, Any]:
     if config.get("L_mm") is not None:
         l_mm = float(config["L_mm"])
         try:
+            margin = thermal_lens_margin(l_mm, r1, r2, crystal)
             analysis = _analyze_length(l_mm, r1, r2, wavelength_nm, crystal)
         except ValueError as exc:
             return {"status": "failed", "message": str(exc)}
-        base["analysis"] = analysis
+        base["analysis"] = {**analysis, **margin}
         base["placement"] = _placement(l_mm, crystal)
         # Sampled only for the single geometry being reported — never inside the
         # scan loop, which evaluates thousands of lengths.
@@ -282,33 +317,20 @@ def run_cavity_design(config: dict[str, Any]) -> dict[str, Any]:
     windows = _stable_windows(points)
     recommended = None
     if stable_pts:
-        # Local import: design.py imports helpers from this module.
-        from .design import thermal_lens_tolerance
-
-        def _tol(p: dict) -> float:
-            try:
-                return thermal_lens_tolerance(p["length_mm"], r1, r2, crystal)
-            except Exception:  # noqa: BLE001 - a bad geometry means zero margin
-                return 0.0
-
         if target is not None:
             recommended = min(stable_pts, key=lambda p: abs(p["waist_w0_mm"] - target))
-            tol = _tol(recommended)
+            margin = thermal_lens_margin(recommended["length_mm"], r1, r2, crystal)
             criterion = f"束腰最接近目标 {target} mm"
         else:
-            # No target waist: rank by MEASURED thermal-lens margin, never the
-            # |m| proxy — small |m| also describes the near-concentric branch,
-            # which dies under a routine thermal lens (see design.py).
-            sampled = stable_pts[:: max(1, len(stable_pts) // 40)]
-            tols = [(_tol(p), p) for p in sampled]
-            tol, recommended = max(tols, key=lambda tp: (tp[0], -abs(tp[1]["stability_m"])))
-            criterion = ("实测热透镜裕度最大(在增益介质处插入薄透镜并扫描光焦度直至失稳;"
-                         "不使用 |m| 代理判据)")
+            candidates = ((thermal_lens_margin(p["length_mm"], r1, r2, crystal), p) for p in stable_pts)
+            margin, recommended = max(candidates, key=lambda item: (
+                item[0]["thermal_lens_tolerance_dioptre"], item[0]["thermal_lens_limit_kind"] == "ceiling",
+                -abs(item[1]["stability_m"])))
+            criterion = "在已扫描的腔长中，优先选取从冷腔起具有最大连续正热透镜裕度的设定（比较至 10 D）。"
         base["recommended"] = {
             "criterion": criterion,
             **recommended,
-            "thermal_lens_tolerance_dioptre": tol,
-            "thermal_lens_tolerance_min_f_mm": None if tol <= 0 else round(1000.0 / tol, 1),
+            **margin,
         }
         base["placement"] = _placement(recommended["length_mm"], crystal)
         base["beam_envelope"] = beam_envelope(
@@ -323,15 +345,14 @@ def run_cavity_design(config: dict[str, Any]) -> dict[str, Any]:
         # keep the table compact: at most ~60 rows for display
         "points": points[:: max(1, len(points) // 60)],
     }
-    base["summary"] = (
-        f"扫描腔长 L={start}–{stop} mm:{len(windows)} 个稳定区间 {windows};"
-        + (f"推荐 L={recommended['length_mm']} mm(w0={recommended.get('waist_w0_mm')} mm,"
-           f"可承受热透镜 {base['recommended']['thermal_lens_tolerance_dioptre']} D)。"
-           if recommended else
-           "在此范围内没有稳定腔长——请更换腔镜曲率(至少一面用曲面镜)或扩大扫描范围。")
-    )
-    if not stable_pts:
-        base["status"] = "completed"
+    base["summary"] = f"扫描腔长 {start:g} 至 {stop:g} mm，得到 {len(windows)} 段连续达标的采样位置。"
+    if recommended:
+        power = margin["thermal_lens_tolerance_dioptre"]
+        endpoint = (f"计算至 {power:.6g} D 仍稳定。" if margin["thermal_lens_limit_kind"] == "ceiling"
+                    else f"首个热透镜临界值约为 {power:.6g} D。")
+        base["summary"] += f"推荐腔长 {recommended['length_mm']:g} mm，束腰半径 {recommended['waist_w0_mm']:g} mm。{endpoint}"
+    else:
+        base["summary"] += "在已采样的腔长中没有找到稳定基模，可核对腔镜曲率或改变扫描范围。"
     return base
 
 
@@ -348,7 +369,7 @@ def _placement(l_mm: float, crystal: dict | None) -> list[dict[str, Any]]:
 def _summary_line(analysis: dict, wavelength_nm: float) -> str:
     if not analysis.get("stable"):
         return (f"该腔在 L={analysis['length_mm']} mm 不稳定(m={analysis.get('stability_m')}),"
-                "无法起振——请调整腔长或腔镜曲率。")
+                "当前近轴冷腔模型没有稳定受限基模。可扫描腔长或腔镜曲率，再用相应的增益与损耗模型评估起振条件。")
     return (
         f"L={analysis['length_mm']} mm 稳定(m={analysis['stability_m']}):"
         f"w0={analysis.get('waist_w0_mm')} mm,镜面光斑 w(M1)={analysis.get('w_on_mirror1_mm')} mm、"

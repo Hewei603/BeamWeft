@@ -1,0 +1,16 @@
+.solver-receipt { margin: .65rem 0; padding: .5rem 0; border-top: 1px solid #364851; }
+.solver-receipt > summary { width: fit-content; cursor: pointer; color: #b9dad4; font-size: .88rem; }
+.solver-info, .solver-recheck-result { min-width: 0; }
+.solver-info p, .solver-receipt p { line-height: 1.55; overflow-wrap: anywhere; }
+.solver-info table { border-collapse: collapse; margin: .7rem 0; width: 100%; font-size: .82rem; }
+.solver-info th, .solver-info td { text-align: left; padding: .38rem .5rem; border-bottom: 1px solid #34434d; overflow-wrap: anywhere; }
+.solver-info tbody th { color: #b7c8ce; font-weight: 500; }
+.solver-info tr[data-diff] td { background: #4f3f262e; }
+.solver-unknown { color: #adbac0; }
+.solver-info details { margin: .45rem 0; }
+.solver-info pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.solver-values { max-width: 100%; overflow-x: auto; }
+.solver-values th:first-child { width: 46%; }
+.solver-values td { width: 27%; }
+.solver-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.solver-changed { display: block; color: #efd1a1; }

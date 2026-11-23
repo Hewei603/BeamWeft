@@ -1,0 +1,93 @@
+{
+  "frozen_at_utc": "2026-11-19T17:54:48.967089+00:00",
+  "archive_sha256": "670394caaefc68e9a2f133a55f9788bc680e3e3310e4fd063a6c7346153eb7cd",
+  "code_sha256": {
+    "benchmark.py": "9ced9ef80cb6e85c50ad6b60b1b6f4740253fb4898eb137cfeeb004a630125ca",
+    "archive.py": "95e06092b8ef9c1e81aa38e5cadc3fc0ed9876360ad2c47d17016c2d988260f8"
+  },
+  "source_train": "data/image_correction/f6cm_exact/capture_0.npy",
+  "source_holdout": "data/image_correction/f6cm_exact/capture_3.npy",
+  "train_description": "uncorrected",
+  "holdout_description": "amplitude and phase corrected hologram",
+  "source_holdout_crc32_from_directory": "1f0a3966",
+  "source_phase_sign": -1,
+  "training_correlation": 0.9432925975068488,
+  "transform": [
+    782.7870813641503,
+    707.1578439222835,
+    1.2509437592034167,
+    0.83951431249198,
+    -0.00588293784445455
+  ],
+  "native_metrics": {
+    "0": {
+      "peak_index_yx": [
+        720,
+        660
+      ],
+      "peak_xy_mm": [
+        -0.7710937499999999,
+        0.4935
+      ],
+      "energy_fraction_in_native_rectangle_cols650_915_rows595_822_half_open": 0.9090217032221679,
+      "native_pitch_xy_mm": [
+        0.0025703124999999997,
+        0.0041125
+      ]
+    },
+    "3": {
+      "peak_index_yx": [
+        692,
+        699
+      ],
+      "peak_xy_mm": [
+        -0.6708515624999999,
+        0.37834999999999996
+      ],
+      "energy_fraction_in_native_rectangle_cols650_915_rows595_822_half_open": 0.8833642115890374,
+      "native_pitch_xy_mm": [
+        0.0025703124999999997,
+        0.0041125
+      ]
+    }
+  },
+  "camera_roi_xyxy": [
+    430,
+    523,
+    706,
+    799
+  ],
+  "camera_center_xy": [
+    568.0,
+    661.0
+  ],
+  "inner_radius_px": 103,
+  "black_detector_counts": 3.0,
+  "camera_blur_sigma_px": 2.5,
+  "normalization": "Subtract fixed dark offset from camera and clip at zero. Smooth each ROI and divide each by its own mean. Unitless shape comparison.",
+  "baselines": [
+    "unchanged observed training image",
+    "training observation plus predicted change"
+  ],
+  "tests": {
+    "shape": "Full first-order ROI Pearson r >= 0.80",
+    "change": "Inside fixed disk the RMS error using observed train + predicted change must be at least 5% below the unchanged observed train baseline.",
+    "joint_pass": "Both criteria must pass, unchanged registration and full pixel mask including saturated observations."
+  },
+  "files_sha256": {
+    "incident_pupil.npy": "9be100c5a4d6fc9864d1ccc4d130546498518f69f1a57a948597f5db3a15492a",
+    "phase_0_rad.npy": "a0b0bc2f754f585b89919fdbc55ef825b0259bbc3ba0cfb7b7a1a446889b7a38",
+    "phase_3_rad.npy": "ee94329bd4216120b9f8a811390d0915b99bb3805c882ccada8c29c1336575e7",
+    "prediction_0.npy": "f208c7f755109988861b107cec15f9187324feac2f6889c9eebbbad6eeed3f32",
+    "prediction_3.npy": "97813fb1c17cde25108422456f49f2b418ee06c36d265f2d04de5ef3bf53c36d",
+    "training_observation.npy": "a35977f52dd30ecb6d88eceb84871d85eb8cc9c854c866aedfa7012d24f095df"
+  },
+  "raw_member_sha256": {
+    "data/wavefront_measurement/f6cm_exact/amp_wavefront.npy": "36856bfdc169ea2b3c8c345daa27b7dad991189c2c50c282d302de24097f229c",
+    "data/wavefront_measurement/f6cm_exact/phase_wavefront.npy": "e26c4836610208626d1363bdcb5812c348c73d99e582c5055db6ba8d86f95010",
+    "data/image_correction/f6cm_exact/holo_0.npy": "35aeda05561466c6cc2c9f32bac15925c534cb69d32bce77d7f52e078e0b52ef",
+    "data/image_correction/f6cm_exact/holo_3.npy": "1f6d2fe1961c31ce0048195c07bdff1b1e3020ffcfe067bbb55e999f47b4000b",
+    "data/image_correction/f6cm_exact/capture_0.npy": "0742e9c5cc8f8167333234d6de867111c05ee62fd0e2b6d62ddb248c948df886",
+    "data/image_correction/f6cm_exact/info.txt": "9c9ebac737de9e87996c472b784fba96872025473620ba91a5255d79c489e2a5"
+  }
+}

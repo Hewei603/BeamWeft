@@ -11,6 +11,7 @@ const FIELD_SPECS = {
     { key: 'wavelength_nm', kind: 'number', label: 'waveL', placeholder: '1064' },
     { key: 'R1_mm', kind: 'rocText', label: 'r1', placeholder: 'flat' },
     { key: 'R2_mm', kind: 'rocText', label: 'r2', placeholder: '300' },
+    { key: 'L_mm', kind: 'number', label: 'fixedLength', placeholder: '' },
     { key: 'L_start', kind: 'number', label: 'lStart', placeholder: '40' },
     { key: 'L_stop', kind: 'number', label: 'lStop', placeholder: '300' },
     { key: 'L_step', kind: 'number', label: 'lStep', placeholder: '5' },
@@ -26,12 +27,15 @@ const FIELD_SPECS = {
     { key: 'pm_type', kind: 'select', label: 'pmType', options: ['I', 'II'] },
   ],
   coating_tmm: [
+    { key: 'curve_unit', kind: 'select', label: 'curveUnit', options: ['percent', 'fraction'], optionLabels: { percent: '百分数 / %（99.5 = 99.5%）', fraction: '分数 / 0–1（0.995 = 99.5%）' } },
     { key: 'nominal_function', kind: 'select', label: 'coatFunction', options: ['HR', 'AR', 'PR'] },
     { key: 'nominal_wavelength_nm', kind: 'number', label: 'coatDesignWl', placeholder: '1123' },
     { key: 'query_wavelengths', kind: 'text', label: 'coatQuery', placeholder: '1064, 808' },
     { key: 'aoi_deg', kind: 'number', label: 'coatAoi', placeholder: '0' },
   ],
   power_curve: [
+    { key: 'pump_unit', kind: 'select', label: 'pumpUnit', options: ['W', 'mW', 'μW', 'kW'] },
+    { key: 'output_unit', kind: 'select', label: 'outputUnit', options: ['W', 'mW', 'μW', 'kW'] },
     { key: 'output_coupler_T_pct', kind: 'number', label: 'ocT', placeholder: '5' },
     { key: 'label', kind: 'text', label: 'seriesLabel', placeholder: 'T=5%' },
   ],
@@ -64,10 +68,10 @@ const FLAT_WORDS = ['flat', 'inf', 'infinite', 'plane', '平', '平镜', '平面
 // after a page refresh silently deletes them. Form-owned keys are the form's
 // alone: absent from the form means deliberately cleared.
 export const OWNED_KEYS = {
-  cavity_design: ['wavelength_nm', 'R1_mm', 'R2_mm', 'L_scan_mm', 'target_waist_mm', 'crystal'],
+  cavity_design: ['wavelength_nm', 'R1_mm', 'R2_mm', 'L_mm', 'L_scan_mm', 'target_waist_mm', 'crystal'],
   phase_match: ['crystal', 'lambda1_nm', 'lambda2_nm', 'pm_type'],
-  coating_tmm: ['nominal', 'query_wavelengths_nm', 'aoi_deg'],
-  power_curve: ['output_coupler_T_pct', 'label'],
+  coating_tmm: ['nominal', 'query_wavelengths_nm', 'aoi_deg', 'curve_unit'],
+  power_curve: ['output_coupler_T_pct', 'label', 'pump_unit', 'output_unit'],
   stability: ['roi'],
   literature_search: ['query', 'year_from', 'max_results', 'sources'],
 };
@@ -110,10 +114,16 @@ export function buildModuleConfig(moduleType, values = {}) {
         else errors.push(labelKey);
       }
     }
+    const fixed = num('L_mm', 'fixedLength');
+    if (fixed !== null) config.L_mm = fixed;
     const start = num('L_start', 'lStart');
     const stop = num('L_stop', 'lStop');
     const step = num('L_step', 'lStep');
-    if (start !== null && stop !== null) {
+    if (fixed !== null && [start, stop, step].some(value => value !== null)) {
+      errors.push('chooseLengthMode');
+    } else if ([start,stop,step].some(value => value !== null) && (start === null || stop === null)) {
+      errors.push(start === null ? 'lStart' : 'lStop');
+    } else if (start !== null && stop !== null) {
       config.L_scan_mm = { start, stop, ...(step !== null ? { step } : {}) };
     }
     const waist = num('target_waist_mm', 'targetWaist');
@@ -133,6 +143,7 @@ export function buildModuleConfig(moduleType, values = {}) {
     if (l2 !== null) config.lambda2_nm = l2;
     if (values.pm_type) config.pm_type = values.pm_type;
   } else if (moduleType === 'coating_tmm') {
+    if (values.curve_unit) config.curve_unit = values.curve_unit;
     const design = num('nominal_wavelength_nm', 'coatDesignWl');
     if (design !== null) {
       config.nominal = { design_wavelength_nm: design, function: values.nominal_function || 'HR' };
@@ -146,6 +157,8 @@ export function buildModuleConfig(moduleType, values = {}) {
     const aoi = num('aoi_deg', 'coatAoi');
     if (aoi !== null) config.aoi_deg = aoi;
   } else if (moduleType === 'power_curve') {
+    config.pump_unit = values.pump_unit || 'W';
+    config.output_unit = values.output_unit || 'W';
     const oc = num('output_coupler_T_pct', 'ocT');
     if (oc !== null) config.output_coupler_T_pct = oc;
     if ((values.label || '').trim()) config.label = values.label.trim();
@@ -175,7 +188,8 @@ export function configToFormValues(moduleType, config = {}) {
     put('wavelength_nm', config.wavelength_nm);
     put('R1_mm', config.R1_mm);
     put('R2_mm', config.R2_mm);
-    const scan = config.L_scan_mm || {};
+    put('L_mm', config.L_mm);
+    const scan = config.L_mm == null ? config.L_scan_mm || {} : {};
     put('L_start', scan.start);
     put('L_stop', scan.stop);
     put('L_step', scan.step);
@@ -190,6 +204,7 @@ export function configToFormValues(moduleType, config = {}) {
     put('lambda2_nm', config.lambda2_nm);
     put('pm_type', config.pm_type);
   } else if (moduleType === 'coating_tmm') {
+    put('curve_unit', config.curve_unit);
     const nominal = config.nominal || {};
     put('nominal_function', nominal.function);
     put('nominal_wavelength_nm', nominal.design_wavelength_nm);
@@ -198,6 +213,8 @@ export function configToFormValues(moduleType, config = {}) {
     }
     put('aoi_deg', config.aoi_deg);
   } else if (moduleType === 'power_curve') {
+    put('pump_unit', config.pump_unit || 'W');
+    put('output_unit', config.output_unit || 'W');
     put('output_coupler_T_pct', config.output_coupler_T_pct);
     put('label', config.label);
   } else if (moduleType === 'stability') {
@@ -227,7 +244,7 @@ export default function ModuleConfigForm({ moduleType, values, onChange }) {
             {field.kind === 'select' ? (
               <select value={values[field.key] || ''} onChange={(e) => onChange(field.key, e.target.value)}>
                 <option value="">{t('caseDetail.modulesTab.form.keepDefault')}</option>
-                {field.options.map((opt) => <option key={opt} value={opt}>{opt.toUpperCase()}</option>)}
+                {field.options.map((opt) => <option key={opt} value={opt}>{field.optionLabels?.[opt] || (field.key.endsWith('_unit') ? opt : opt.toUpperCase())}</option>)}
               </select>
             ) : (
               <input

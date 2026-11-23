@@ -21,6 +21,24 @@ READY = {"ready": True, "available": True, "logged_in": True, "auth_method": "ch
          "message": "ready", "version": "test-cli", "executable": "codex"}
 
 
+def test_desktop_update_recovers_versioned_executable(tmp_path, monkeypatch):
+    binary_root = tmp_path / "OpenAI" / "Codex" / "bin"
+    previous = binary_root / "removed-build" / "codex.exe"
+    current = binary_root / "current-build" / "codex.exe"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"test executable path")
+    monkeypatch.setattr(module.shutil, "which", lambda name: str(current) if name == "codex.exe" else None)
+    assert module.resolve_command(str(previous)) == [str(current)]
+
+
+def test_missing_custom_executable_is_not_silently_replaced(tmp_path, monkeypatch):
+    current = tmp_path / "codex.exe"
+    current.write_bytes(b"other installation")
+    monkeypatch.setattr(module.shutil, "which", lambda name: str(current) if name == "codex.exe" else None)
+    with pytest.raises(RuntimeError, match="未找到"):
+        module.resolve_command(str(tmp_path / "custom" / "codex.exe"))
+
+
 @pytest.fixture
 def cli(monkeypatch):
     state = SimpleNamespace(answer={"response_json": '{"message":"已连接"}'}, commands=[], prompts=[],
@@ -85,7 +103,7 @@ def test_subscription_usage_is_never_priced_using_api_rates():
 @pytest.mark.parametrize("events,answer,code,error", [
     ([], {"response_json": "{}"}, 0, "执行失败"),
     ([{"type": "turn.failed", "error": {"message": "usage limit reached"}}], None, 1, "订阅额度"),
-    ([{"type": "error", "message": "401 authentication failed"}], None, 1, "登录已失效"),
+    ([{"type": "error", "message": "401 authentication failed"}], None, 1, "登录认证失败"),
     ([{"type": "turn.completed"}], None, 0, "结构化结果"),
     ([{"type": "turn.completed"}], {"response_json": "broken"}, 0, "JSON"),
     ([{"type": "item.completed", "item": {"type": "command_execution"}}, {"type": "turn.completed"}],
@@ -95,6 +113,67 @@ async def test_failed_or_incomplete_cli_turn_is_not_accepted(cli, events, answer
     cli.events, cli.answer, cli.code = events, answer, code
     with pytest.raises(CodexExecError, match=error):
         await CodexExecProvider()._request_json("test", {})
+
+
+@pytest.mark.asyncio
+async def test_reconnection_accepts_the_completed_cli_reply_without_repeating_the_call(cli):
+    cli.answer = {"response_json": '{"value":42}'}
+    reconnect = {"type": "error", "message": "Reconnecting... 1/5 (stream disconnected)"}
+    cli.events = [
+        {"type": "turn.started"}, reconnect, reconnect,
+        {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(cli.answer)}},
+        {"type": "turn.completed", "usage": {"input_tokens": 12, "output_tokens": 4}},
+    ]
+    reply = await CodexExecProvider()._request_json("test", {})
+    assert reply["value"] == 42 and reply["_usage"]["total_tokens"] == 16
+    assert len(cli.commands) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["terminal", "after_completion", "unknown_error", "no_fresh_message",
+                                  "no_final_file", "malformed_event_reply", "different_reply", "nonzero", "external_tool"])
+async def test_incomplete_or_contradictory_reconnection_is_rejected(cli, fault):
+    cli.answer = {"response_json": '{"value":42}'}
+    retry = {"type": "error", "message": "Reconnecting... 1/5 (stream disconnected)"}
+    message = {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(cli.answer)}}
+    end = {"type": "turn.completed"}
+    cli.events = [{"type": "turn.started"}, retry, message, end]
+    if fault == "terminal":
+        cli.events.insert(2, {"type": "turn.failed", "error": {"message": "stream disconnected"}})
+    elif fault == "after_completion":
+        cli.events.append(retry)
+    elif fault == "unknown_error":
+        cli.events.insert(2, {"type": "error", "message": "unrecognized failure"})
+    elif fault == "no_fresh_message":
+        cli.events = [message, retry, end]
+    elif fault == "no_final_file":
+        cli.answer = None
+    elif fault == "malformed_event_reply":
+        message["item"]["text"] = "{"
+    elif fault == "different_reply":
+        cli.answer = {"response_json": '{"value":24}'}
+    elif fault == "nonzero":
+        cli.code = 1
+    else:
+        cli.events.insert(2, {"type": "item.completed", "item": {"type": "command_execution"}})
+    with pytest.raises(CodexExecError):
+        await CodexExecProvider()._request_json("test", {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("events,code,stderr,reason,event", [
+    ([], 0, "model = example", "执行失败", "未收到完成事件"),
+    ([{"type":"turn.failed","error":{"message":"stream disconnected"}}], 1, "model = example", "连接中断", "收到错误事件"),
+    ([{"type":"turn.completed"}], 23, "model_not_found", "无法使用指定模型", "收到完成事件"),
+])
+async def test_visible_cli_diagnostic_uses_process_evidence_without_disclosing_raw_output(cli, events, code, stderr, reason, event):
+    cli.events, cli.code = events, code
+    cli.stderr = (stderr + " private-experiment-file-or-token").encode()
+    with pytest.raises(CodexExecError) as exc:
+        await CodexExecProvider()._request_json("private prompt", {})
+    message = str(exc.value)
+    assert reason in message and event in message and f"退出码 {code}" in message
+    assert "private" not in message
 
 
 @pytest.mark.asyncio
@@ -145,6 +224,27 @@ async def test_design_images_and_all_generation_methods_reach_cli(cli):
     assert "--image" in cli.commands[-1][0]
 
 
+def test_text_directory_preserves_every_local_schema_and_unknown_plugins():
+    from app.workbench.tools import schemas
+
+    tools = schemas()
+    for index, constant in enumerate([True, True, 1, "1"]):
+        tools.append({"name": f"external_{index}", "parameters": {
+            "$defs": {"Stage": {"const": constant}, "Loop": {"anyOf": [
+                {"$ref": "#/$defs/Loop"}, {"$ref": "#/$defs/Stage"}]}},
+            "properties": {"sample": {"$ref": "#/$defs/Loop"}},
+        }})
+    original = json.dumps(tools, sort_keys=True, ensure_ascii=False)
+    directory = json.loads(module._tool_directory_text(tools))
+    assert "Loop" in directory["shared_defs"]
+    assert directory["shared_defs"]["Stage"]["const"] is True
+    for entry in directory["tools"]:
+        for name in entry.pop("import_defs", []):
+            entry["parameters"]["$defs"][name] = directory["shared_defs"][name]
+    assert json.dumps(directory["tools"], sort_keys=True, ensure_ascii=False) == original
+    assert json.dumps(tools, sort_keys=True, ensure_ascii=False) == original
+
+
 @pytest.mark.asyncio
 async def test_agent_turn_preserves_tool_feedback_and_image_evidence(cli):
     cli.answer = {"calls": [{"name": "finish", "arguments": '{"status":"partial","summary":"已有计算"}'}]}
@@ -183,6 +283,7 @@ def test_codex_settings_persist_without_key_and_preserve_api_profile(client, cli
     assert get_settings().openai_api_key == "retained-key"
     assert get_ai_provider().model == "gpt-6.1-sol"
     assert get_ai_provider().timeout == 180
+    assert get_ai_provider().reasoning_effort == "high"
     assert client.put("/api/settings/agent", json={"provider": "openai", "model": "old-model"}).status_code == 200
     assert get_ai_provider().api_key == "retained-key"
 
@@ -224,9 +325,13 @@ def test_status_never_returns_api_key_from_cli_output(monkeypatch):
 
 def test_live_test_endpoint_checks_draft_without_saving(client, cli):
     cli.answer = {"response_json": '{"ok":true}'}
-    result = client.post("/api/settings/agent/codex/test", json={"provider": "codex_exec", "model": "draft-model"})
+    result = client.post("/api/settings/agent/codex/test", json={
+        "provider": "codex_exec", "model": "draft-model", "reasoning_effort": "high",
+    })
     assert result.status_code == 200, result.text
     assert result.json()["model"] == "draft-model"
+    args = cli.commands[-1][0]
+    assert args[args.index("--model") + 1] == "draft-model" and 'model_reasoning_effort="high"' in args
     assert get_settings().ai_provider == "mock"
     assert result.json()["usage"]["cost_estimate_usd"] is None
 
@@ -242,9 +347,16 @@ def test_workbench_uses_codex_selected_tool_and_real_physics(client, db, cli, mo
         {"name": "M2", "kind": "mirror", "radius_mm": 100}]}
 
     def decide(prompt):
+        directory = json.loads(prompt.split("Available tool definitions:\n")[1].split("\n\n")[0])
+        entries = directory["tools"] if isinstance(directory, dict) else directory
+        offered = {row["name"] for row in entries}
         history = json.loads(prompt.split("Conversation and real tool results:\n")[1])
         outputs = [json.loads(m["content"]) for m in history if m["role"] == "tool"]
         if not outputs:
+            assert "analyze_optical_system" not in offered
+            return {"calls": [{"name": "search_capabilities", "arguments": json.dumps({"query":"近轴 腔模","kind":"study"})}]}
+        if len(outputs) == 1:
+            assert "analyze_optical_system" in offered
             return {"calls": [{"name": "analyze_optical_system", "arguments": json.dumps(system)}]}
         assert outputs[-1]["result"]["stable_both_planes"] is True
         return {"calls": [{"name": "finish", "arguments": json.dumps({
@@ -259,4 +371,30 @@ def test_workbench_uses_codex_selected_tool_and_real_physics(client, db, cli, mo
     optical = next(t for t in run["tools"] if t["name"] == "analyze_optical_system")
     assert optical["output"]["planes"]["tangential"]["input"]["radius_mm"] == pytest.approx(0.130131, rel=1e-5)
     assert run["result"]["evidence_tool_call_ids"] == [optical["id"]]
-    assert len(cli.commands) == 2
+    assert len(cli.commands) == 3
+
+
+def test_public_interruption_receipt_preserves_the_completed_read_and_safe_process_diagnostic(client, db, cli, monkeypatch):
+    from app.workbench import service
+
+    monkeypatch.setattr(service, "SessionLocal", sessionmaker(bind=db.get_bind(), expire_on_commit=False))
+    client.put("/api/settings/agent", json={"provider":"codex_exec","model":"test-model"})
+    case_id = client.post("/api/cases", json={"title":"中断回执"}).json()["id"]
+    root = f"/api/cases/{case_id}/workbench/runs"
+
+    def decide(_prompt):
+        if len(cli.commands) == 1:
+            return {"calls":[{"name":"read_optical_project","arguments":"{}"}]}
+        cli.events = [{"type":"turn.failed","error":{"message":"stream disconnected: private-sample-file"}}]
+        return None
+
+    cli.answer = decide
+    response = client.post(root, json={"message":"核对收到的光路"})
+    assert response.status_code == 202
+    run = client.get(f"{root}/{response.json()['task_id']}").json()
+    assert run["status"] == "failed" and run["result_origin"] == "system_receipt"
+    read = next(call for call in run["tools"] if call["name"] == "read_optical_project")
+    assert read["status"] == "completed"
+    summary = run["result"]["summary"]
+    assert all(marker in summary for marker in ("连接中断", "退出码 0", "收到错误事件", "未收到完成事件"))
+    assert "private-sample-file" not in json.dumps(run, ensure_ascii=False)

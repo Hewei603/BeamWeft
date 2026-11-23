@@ -6,6 +6,44 @@ from app.inventory.parser import classify_category, parse_coating, parse_geometr
 REVIEWER = {"x-user-role": "reviewer", "x-user-id": "98", "x-user-email": "rev@example.com"}
 
 
+def test_sheet_geometry_follows_group_boundaries_and_explicit_vertical_merges(client):
+    from openpyxl import Workbook
+
+    book = Workbook()
+    optics = book.active
+    optics.append(["id", "name", "S1", "S2", "size", "ROC", "quantity", "location"])
+    optics.append([1, "LBO 晶体", "", "", "D=22mm θ=90°", "", 1, "source"])
+    optics.append([2, None, "", "", None, "R=50mm", 1, "continuation"])
+    optics.append([3, "未知窗口", "", "", None, "", 1, "new-part"])
+    optics.append([4, "同名窗口", "", "", "D=19mm", "", 1, "first-copy"])
+    optics.append([5, "同名窗口", "", "", None, "", 1, "other-copy"])
+    optics.append([6, "左窗", "", "", "D=12mm", "", 1, "left"])
+    optics.append([7, "右窗", "", "", None, "", 1, "right"])
+    optics.merge_cells("E7:E8")
+    crystals = book.create_sheet()
+    crystals.append(["YAG 晶体", "", "", "θ=30°", "", 1, "plate-A"])
+    crystals.append([None, "1064AR", "", None, "", 1, "plate-B"])
+    crystals.merge_cells("A1:A2")
+    crystals.merge_cells("D1:D2")
+    buffer = io.BytesIO()
+    book.save(buffer)
+    book.close()
+    submitted = client.post("/api/inventory/import", headers=REVIEWER, files={
+        "file": ("sample-groups.xlsx",buffer.getvalue(),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert submitted.status_code == 200, submitted.text
+    rows = {item["location"]:item for item in client.get("/api/inventory/items").json()}
+    assert len(rows) == 9
+    assert rows["continuation"]["diameter_mm"] == 22 and rows["continuation"]["cut_angle_theta_deg"] == 90
+    assert rows["continuation"]["material"] == "LBO"
+    for key in ("new-part", "other-copy"):
+        assert rows[key]["diameter_mm"] is None and rows[key]["cut_angle_theta_deg"] is None
+        assert rows[key]["material"] is None and not rows[key]["raw_spec"]
+    assert rows["first-copy"]["diameter_mm"] == 19
+    assert rows["right"]["diameter_mm"] == rows["left"]["diameter_mm"] == 12
+    assert rows["plate-B"]["cut_angle_theta_deg"] == rows["plate-A"]["cut_angle_theta_deg"] == 30
+    assert rows["plate-B"]["material"] == "YAG"
+
+
 # --- parser (grammar from the real workbook) --------------------------------
 
 def test_parse_raman_output_coupler():

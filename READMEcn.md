@@ -1,32 +1,51 @@
-# LaserClaw 2.0
+# BeamWeft 1.9
 
-**用任务驱动的 AI Agent 组织激光实验设计、仿真和数据分析。** 新建案例只需标题和描述；目标、已有元件、装调约束、图片和测量数据都可以在案例工作区继续补充。Agent 读取信息、选择工具、检查真实计算结果、保存工程，并在需要时给出有单位和获取方法的补测问题。
+[English](README.md) · **简体中文**
 
-[使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [2.0 发布说明与真实案例验收](docs/releases/2.0.0/README.md) · [English](README.md)
+原名 LaserClaw。已有的 `.lclaw` 工程文件可以直接打开。
 
-## 2.0 的主要变化
+**产品目标：通用的 Agentic 激光光学仿真软件。** 从实验人员的目标、器件、资料、测量与工作流程出发；常规换件、改布局、改参数和换目标通过工程数据与工具调用完成。能力不足时扩展独立物理模型与契约，不能用单个案例的隐藏假设代替通用能力。
+
+在 **1.9.0** 中，Agent 保存的光路可以直接在工程画布上继续编辑。你可以手动改元件、看光束复算，也可以让 Agent 读取当前尚未保存的草稿。多个方案可分别打开，历史答复仍能定位到当时的光路。
+
+**用任务驱动的 AI Agent 组织激光实验设计、仿真和数据分析。** 新建工程只需名称，可直接搭建光路或放入测量原件。实验目标、器件资料和约束都可以稍后补充。Agent 读取信息、选择工具、检查真实计算结果、保存工程，并在需要时给出有单位和获取方法的补测问题。
+
+[使用指南](docs/GUIDE_V2.md) · [Codex exec 配置](docs/CODEX_EXEC.md) · [Agent 与物理工具边界](docs/WORKBENCH.md) · [1.9 更新说明](CHANGELOG.md)
+
+| 画布上的 1064 nm 谐振腔 | 选中凹面镜查看参数 |
+| --- | --- |
+| ![BeamWeft 1.9 显示平面镜、自由传播段、凹面镜和计算所得的腔模包络](docs/images/beamweft-1.9-cavity.jpg) | ![凹面镜位于 54.25 mm 处，该位置的切向和弧矢方向腔模半径均为 193.89 µm](docs/images/beamweft-1.9-mirror.jpg) |
+
+两张实拍截自同一个示例工程。点选凹面镜，既能读出镜面处的光斑半径，也能直接编辑这个元件。
+
+## 当前能力
 
 - **两种模型接入**：首页选择 API Key 或 Codex exec。Codex exec 使用后端电脑上官方 CLI 的 ChatGPT 登录与订阅额度，默认模型 `gpt-6.1-sol`；提供登录状态和真实连接测试。API Key 支持隐藏和显示，切换模式保留已保存配置。
 - **按需调用工具的 Agent**：查询元件库、读取附件和历史结果，构造光学模型、扫描参数、比较场景、保存可编辑工程；缺数据时明确说明问题、获取方法和回复格式。
 - **通用近轴光学工程**：单程、驻波腔及共面环形腔；T/S 两轴、平面介质、薄／厚透镜、GRIN、自定义 ABCD、实测焦散拟合和二维稳定图。已有元件的角色和参数可锁定，修改保存为新版本。
+- **从保存的截面接着算**。可以在晶体内部取出带当地折射率、波前和指向的光束，也可以在孔径后把相干衍射场交给另一段单程光路。手工和 Agent 都能引用同一结果，并核对上下游参考面与采样条件。[工作台操作说明](docs/GUIDE_V2.md#从光路上的一个量继续计算)
 - **可读的光场分析**：物理位置示意、晶体与掺杂段边界、半径／直径、单位切换、沿程曲线和截面高斯光斑，支持 CSV／SVG／PNG 导出；结果区可以展开全宽。
 - **数据与结论保持一致**：计划和报告使用最新工程，保留旧版本、工具输入输出、失败记录和未完成项。库存刷新保留借还、人工状态和器件身份。
 
-**模型边界：** 当前数值计算运行 LaserClaw 的 Python/NumPy ABCD 内核，尚未集成 Rezonator C++ 运行时。几何稳定性、理想基模和假设热透镜扫描不能证明实际出光、预测真实输出功率或证明最高效率。增益饱和、空间热场和无膜端面复合腔需要进一步的模型与测量。案例验收保留了这些边界，没有将26 mm参考腔长称为功率最优。
+**模型范围。** 冷腔和高斯光束由 BeamWeft 的 Python/NumPy ABCD 内核计算，单程相干光场由基于傅里叶变换的标量菲涅耳传播方法计算。Rezonator 用作冷腔计算的外部对照。判断实际起振、输出功率或效率最优，还需要相应的增益、损耗和实验数据。增益饱和、空间热场和无膜端面形成的复合腔各自需要进一步建模和验证。验收案例中的 26 mm 腔长是在给定条件下得到的参考布局。
 
 ![1064 nm cold-cavity mode](docs/releases/2.0.0/validation/field-radius.png)
 
-发布验收：本地后端540项测试通过、3项跳过，前端ESLint和生产构建通过；真实Codex订阅运行完成10次工具读取／计算，两种晶体朝向共3538个二维扫描点通过独立矩阵复核。详见[验收报告](docs/releases/2.0.0/validation/review.html)。
+此前的开发验收用独立矩阵算法复核了两种晶体朝向下的 3,538 个稳定性扫描点，详见[历史验收报告](docs/releases/2.0.0/validation/review.html)。1.9 的回归测试也覆盖了[手工与 Agent 在画布上的交接](backend/tests/test_agent_canvas_outputs.py)。
 
-LaserClaw 是一个面向激光实验工作流的本地优先 **RAG Agent 工作台**。它把实验 Case 管理、实验室知识库索引、Case 专属证据检索、结构化 AI 生成、Agent 执行轨迹和协作治理整合在一个应用里。
+BeamWeft 是一款可在本地使用的光学实验工作台。你可以亲手搭建光路、运行物理计算、用测量数据检验预测，也可以把同一份工程交给 Agent 继续分析。
 
-> 安全说明：LaserClaw 不控制激光器、电源、位移台、联锁、光学平台、探测器或任何实验室硬件。AI 生成内容只作为辅助草稿，必须由具备资质的人员复核后才能用于真实实验。
+在单程光路里，展开 **主光束参数** 即可登记光源。椭圆或像散光束可以分开填写切向 T 和弧矢 S 的半径、波前及 M²。若只测了某一方向的源面半径，保留“波前尚未确定”即可。工作台会显示该面已知的宽度，并继续计算另一方向。选中观察面可查看当地束心与光斑半径。[光路操作说明](docs/WORKBENCH.md#following-a-beam-from-its-source)
 
-![LaserClaw screenshot](https://github.com/user-attachments/assets/b8ebb7f4-f980-4671-8722-2ef0913f7f70)
+> 安全说明：BeamWeft 不控制激光器、电源、位移台、联锁、光学平台、探测器或任何实验室硬件。AI 生成内容只作为辅助草稿，必须由具备资质的人员复核后才能用于真实实验。
+
+![BeamWeft 光路工作台中的两镜谐振腔与计算得到的光束半径](docs/images/beamweft-workbench.png)
+
+[桌面首页实景](docs/images/beamweft-home.webp) · [窄屏首页实景](docs/images/beamweft-home-mobile.webp)
 
 ## 解决什么问题
 
-| 问题 | LaserClaw 的做法 |
+| 问题 | BeamWeft 的做法 |
 |---|---|
 | 实验知识分散在手册、SOP、笔记和附件里 | 使用两层 RAG 同时检索全局实验室文档和 Case 专属文档 |
 | AI 回答难以审计 | 保存 retrieval run、citation、generated artifact、Agent step 和 tool call |
@@ -47,7 +66,7 @@ LaserClaw 是一个面向激光实验工作流的本地优先 **RAG Agent 工作
 - **可打印方案**:腔设计结果带一张横向真实比例的**摆位图**(镜面朝向、晶体位置、冷腔基模包络与束腰),整页 `Ctrl+P` 即可存成 PDF 带进实验室——矢量图,白底黑字,导航与按钮自动隐藏。
 - **结构化 AI artifact**：保存 plan、troubleshooting、report、image analysis、物理模块结果等生成内容。
 - **Prompt/workflow 版本管理**：维护 active prompt 和 workflow version，支持可复现 AI 运行。
-- **Case bundle 导出**：导出完整 Case 包，包含 manifest、附件、生成内容和知识源元数据。
+- **工程交接**。保存为 `.lclaw`，在另一套 BeamWeft 中打开原件和历史光路，复核计算后继续编辑并写回工程文件。[打开工程文件](docs/GUIDE_V2.md#在另一台电脑上复核案例)
 - **项目级 ACL**：Case、知识检索、附件、生成、Agent task、Case module 和 bundle export 都遵循项目权限。
 - **RAG eval 与 benchmark**：提供脚本和 API，评估检索准确率、延迟、索引吞吐和 LLM JSON 可靠性。
 - **检索后端**：支持确定性的 `sql_json`、Chroma、pgvector，以及可选 cross-encoder reranking。
@@ -84,12 +103,12 @@ React + Vite 前端
   -> chat 或 artifact generation
 ```
 
-LaserClaw 有两类检索来源：
+BeamWeft 有两类检索来源：
 
 1. **全局实验室知识**：安全手册、SOP、光学元件目录和实验室规则。所有 Case 都可以检索这类文档。
 2. **Case 专属知识**：Case 数据、附件、图像分析、历史报告和生成内容，用于补充当前实验上下文。
 
-![LaserClaw RAG screenshot](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
+[查看 LaserClaw 早期版本的知识检索界面](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
 
 ## Agent 工作流
 
@@ -195,12 +214,14 @@ LaserClaw 有两类检索来源：
 然后双击:
 
 ```bat
-Launch-LaserClaw.bat
+Launch-BeamWeft.bat
 ```
 
 首次运行会自动创建 `.env` 配置文件(演示模式)。**日常怎么用请看中文使用指南:[docs/GUIDE_V2.md](docs/GUIDE_V2.md)**。
 
-启动脚本会安装依赖并启动:
+如果工作台已经打开，再次双击会连接到现有服务。安装或更新后首次打开会构建生产版界面，之后可复用本地构建。若端口由旧版本占用，请先保存工作并结束正在运行的任务，再关闭旧窗口。
+
+启动器提供以下本机入口。
 
 - 后端 API：<http://127.0.0.1:8000>
 - 前端：<http://127.0.0.1:5173>
@@ -411,7 +432,7 @@ py scripts\tune_retrieval_thresholds.py --dataset ..\docs\evals\private\rag_eval
 ## 项目结构
 
 ```text
-LaserClaw/
+<仓库根目录>/
 |-- backend/
 |   |-- app/
 |   |   |-- agent/          # context, routing, planner, orchestrator, tools
@@ -445,7 +466,7 @@ LaserClaw/
 |-- docker-compose.yml
 |-- docker-compose.dev.yml
 |-- pyproject.toml
-|-- Launch-LaserClaw.bat
+|-- Launch-BeamWeft.bat
 |-- README.md
 `-- READMEcn.md
 ```

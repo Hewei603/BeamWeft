@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laboratory-optics-example"
+version = "1.0.0"
+
+[project.entry-points."beamweft.studies.v1"]
+cylindrical_pair = "laboratory_optics:pair"
+linear_retarder = "laboratory_optics:retarder"
+
+[tool.setuptools]
+py-modules = ["laboratory_optics"]

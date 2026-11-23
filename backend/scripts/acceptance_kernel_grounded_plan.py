@@ -5,7 +5,7 @@ The scenario is the one that matters in a real lab: the user knows what they
 want and almost nothing about the geometry.  They give a wavelength, a pump, a
 crystal and a power goal — no mirrors, no cavity length, no angles.
 
-For the plan to be buildable, LaserClaw must:
+For the plan to be buildable, BeamWeft must:
 
   1. search a cavity geometry constrained to mirrors the lab actually owns,
   2. measure its thermal-lens margin (not guess it from |m|),
@@ -127,8 +127,8 @@ def main() -> int:
         return 1
     print(f"推荐: R1={rec['R1']}  R2={rec['R2']}  L={rec['length_mm']} mm  "
           f"w0={rec['waist_w0_mm']} mm")
-    print(f"热透镜裕度: {rec.get('thermal_lens_tolerance_dioptre')} D "
-          f"(即 f>={rec.get('thermal_lens_tolerance_min_f_mm')} mm 时仍稳定)")
+    print(f"热透镜连续裕度: {rec.get('thermal_lens_tolerance_dioptre')} D "
+          f"({rec.get('thermal_lens_limit_kind')})")
     print(f"搜索空间: {search['search_space']['roc_source']}, "
           f"{search['search_space']['geometries_evaluated']} 个几何, "
           f"{search['search_space']['stable_configurations_found']} 个稳定解")

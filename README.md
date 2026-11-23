@@ -1,32 +1,49 @@
-# LaserClaw 2.0
+# BeamWeft 1.9
 
-**A task-led AI Agent for laser experiment design, simulation and measurement analysis.** Start a case with a title and description, then provide available components, constraints, images or measured data. The Agent chooses tools, checks real numerical results, saves editable optical projects and asks actionable measurement questions when information is missing.
+**English** · [简体中文](READMEcn.md)
 
-[User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [2.0 release and real-case acceptance](docs/releases/2.0.0/README.md) · [中文](READMEcn.md)
+Formerly LaserClaw. Existing `.lclaw` project files open directly.
 
-## New in 2.0
+**Product goal: general-purpose agentic laser and optical simulation.** Routine changes to components, layouts, parameters and experimental goals belong in project data and tool calls. New physics capabilities require independent model contracts; a single case must not dictate the entire application.
+
+In **1.9.0**, optical layouts saved by the Agent open in the same editor you use to build them by hand. Edit a component, see the recomputed beam, and ask the Agent to analyze your current draft. Saved alternatives and historical revisions remain available for comparison.
+
+**A task-led AI Agent for laser experiment design, simulation and measurement analysis.** Start a project with a name, build its optical layout or add measured data, and save an editable `.lclaw` file for another workstation. The Agent chooses tools, checks real numerical results, saves editable optical projects and asks actionable measurement questions when information is missing.
+
+[User guide](docs/GUIDE_V2.md) · [Codex exec setup](docs/CODEX_EXEC.md) · [Agent tools and model scope](docs/WORKBENCH.md) · [1.9 release notes](CHANGELOG.md)
+
+| 1064 nm resonator on the canvas | Inspecting the concave mirror |
+| --- | --- |
+| ![BeamWeft 1.9 showing a plane mirror, free propagation and a concave mirror with the computed mode envelope](docs/images/beamweft-1.9-cavity.jpg) | ![The selected concave mirror with its observation plane at 54.25 mm and a computed mode radius of 193.89 µm on both axes](docs/images/beamweft-1.9-mirror.jpg) |
+
+These two screenshots show the same example. Selecting a mirror reveals the beam radius at its surface and opens the component's editable parameters.
+
+## Current capabilities
 
 - **API Key or Codex exec** on the homepage. Codex exec uses the backend host's official CLI and ChatGPT subscription sign-in, defaults to `gpt-6.1-sol`, and includes status and a real connection test. API credentials retain show/hide controls and survive mode changes.
 - **An iterative, tool-using Agent** that reads inventory, attachments and previous results, constructs models, scans parameters, compares scenarios and saves editable projects. Missing inputs become questions with acquisition methods and units.
 - **General paraxial optical projects** for single-pass propagation, standing-wave cavities and coplanar rings, with T/S planes, thin/thick lenses, GRIN, real ABCD elements, measured-caustic fitting and two-parameter stability maps. Owned hardware constraints and revision history are retained.
+- **Continue propagation from a saved plane.** An interior crystal plane can feed another paraxial calculation with its local index, wavefront and chief-ray angle. A single-pass scalar diffraction study can hand its coherent field to a second layout after an aperture. Each downstream result retains the upstream reference and its numerical assumptions. [Workbench guide](docs/GUIDE_V2.md#从光路上的一个量继续计算)
 - **Readable optical visualization** with physical coordinates, active/crystal boundaries, radius/diameter and unit controls, field profiles, Gaussian cross sections and CSV/SVG/PNG exports. Engineering results can use the full page width.
 - **Consistent current results**: plans and reports use the latest project while preserving historical designs, raw tool traces, partial results and failures. Inventory refresh preserves identities, loans and manual condition records.
 
-**Model scope:** numerical optics currently runs LaserClaw's Python/NumPy ABCD implementation, not an integrated Rezonator C++ runtime. Geometric stability, ideal Gaussian modes and assumed thermal-lens scans do not establish actual lasing, output power or maximum efficiency. Gain saturation, spatial heat fields and uncoated-face compound cavities require additional models and measurements. The acceptance case deliberately reports a conditional layout rather than an unsupported power optimum.
+**Model scope.** Cold-cavity and Gaussian beam calculations use BeamWeft's Python/NumPy ABCD solver. The single-pass coherent field calculation uses scalar Fresnel propagation with FFTs. Rezonator serves as an external reference for cold-cavity checks. Predicting actual lasing, output power or maximum efficiency requires gain and loss models and measurements beyond geometric stability and assumed thermal-lens scans. Modeling gain saturation, spatially varying thermal fields or compound cavities formed by uncoated faces requires additional inputs and validation. The acceptance case reports its layout together with those conditions.
 
 ![1064 nm cold-cavity mode](docs/releases/2.0.0/validation/field-radius.png)
 
-Local validation: 540 backend tests passed, three skipped; frontend lint and production build passed. A real Codex subscription run performed ten successful read/calculation calls, and an independent matrix implementation checked all 3,538 points across two crystal-orientation stability maps. See the [acceptance report](docs/releases/2.0.0/validation/review.html).
+An earlier development review checked 3,538 points across two crystal-orientation stability maps with an independent matrix implementation. The [historical report](docs/releases/2.0.0/validation/review.html) records that experiment. The 1.9 regression suite also covers [manual and Agent canvas handoffs](backend/tests/test_agent_canvas_outputs.py).
 
-LaserClaw is a local-first **RAG Agent workspace for laser experiment workflows**. It combines experiment case management, lab knowledge indexing, case-specific evidence retrieval, structured AI artifact generation, persistent Agent traces, and collaboration-oriented governance.
+BeamWeft is a local-first optical workbench. You can build a layout and run its physics tools by hand, compare predictions with measurements, and ask the Agent to work in the same project.
 
-> Safety note: LaserClaw does not control lasers, power supplies, translation stages, interlocks, optical tables, detectors, or any other lab hardware. Generated content is advisory draft material and must be reviewed by qualified personnel.
+> Safety note: BeamWeft does not control lasers, power supplies, translation stages, interlocks, optical tables, detectors, or any other lab hardware. Generated content is advisory draft material and must be reviewed by qualified personnel.
 
-![LaserClaw screenshot](https://github.com/user-attachments/assets/b8ebb7f4-f980-4671-8722-2ef0913f7f70)
+![BeamWeft optical workbench showing a two-mirror cavity and its calculated beam radius](docs/images/beamweft-workbench.png)
+
+[Desktop home screen](docs/images/beamweft-home.webp) · [Mobile home screen](docs/images/beamweft-home-mobile.webp)
 
 ## What It Solves
 
-| Problem | LaserClaw approach |
+| Problem | BeamWeft approach |
 |---|---|
 | Lab knowledge is scattered across manuals, SOPs, notes, and case files | Two-tier RAG over global lab documents and case-specific documents |
 | AI answers are hard to audit | Stored retrieval runs, citations, generated artifacts, Agent steps, and tool calls |
@@ -47,7 +64,7 @@ LaserClaw is a local-first **RAG Agent workspace for laser experiment workflows*
 - **Printable plans**: cavity design results include a to-scale **layout diagram** (mirror orientation, crystal position, cold-cavity mode envelope and waist); `Ctrl+P` on any case page exports a lab-ready PDF — vector graphics, black on white, navigation and controls hidden.
 - **Structured AI artifacts** saved as versioned generated content.
 - **Prompt/workflow versioning** for reproducible AI runs.
-- **Case bundle export** with manifest, attachments, generated content, and knowledge metadata.
+- **Portable projects** preserve original files, optical revisions and workbench tool records. Open the `.lclaw` file with `Launch-BeamWeft.bat` on the receiving workstation. The launcher also accepts legacy ZIP exports.
 - **Project-level ACL** across cases, knowledge search, attachments, generation, Agent tasks, case modules, and bundle export.
 - **RAG evals and benchmarks** for retrieval quality, latency, indexing throughput, and JSON reliability.
 - **Retrieval backends** including deterministic `sql_json`, Chroma, pgvector, and optional cross-encoder reranking.
@@ -84,12 +101,12 @@ Global document / case attachment / generated artifact
   -> citation-ready context for chat or artifact generation
 ```
 
-LaserClaw uses two retrieval tiers:
+BeamWeft uses two retrieval tiers:
 
 1. **Global lab knowledge**: safety manuals, SOPs, optical component catalogs, and lab-wide operating rules.
 2. **Case knowledge**: case data, attachments, image analysis, prior reports, and generated artifacts linked to the current case.
 
-![LaserClaw RAG screenshot](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
+[View the retrieval interface from the original LaserClaw release](https://github.com/user-attachments/assets/ffc09e0d-93a4-4259-a07b-c943fbbf4cf9)
 
 ## Agent Workflow
 
@@ -193,7 +210,7 @@ Known limitations:
 **Prerequisites** (install once): [Python 3.11+](https://www.python.org/downloads/) (check "Add python.exe to PATH") and [Node.js 22 LTS](https://nodejs.org/).
 
 ```bat
-Launch-LaserClaw.bat
+Launch-BeamWeft.bat
 ```
 
 The first run auto-creates a `.env` config (demo mode). For the day-to-day Chinese user guide see [docs/GUIDE_V2.md](docs/GUIDE_V2.md).
@@ -206,6 +223,8 @@ The launcher installs backend/frontend dependencies and starts:
 - API docs: <http://127.0.0.1:8000/docs>
 
 ## Manual Local Startup
+
+The Windows launcher and native project windows use the production interface. A second launch reconnects to the running library. After updating the software, finish active tasks and close the old services before opening the new version. The following commands start a development session.
 
 Backend:
 
@@ -415,7 +434,7 @@ Core endpoints:
 ## Project Structure
 
 ```text
-LaserClaw/
+<repository-root>/
 |-- backend/
 |   |-- app/
 |   |   |-- agent/          # context, routing, planner, orchestrator, tools
@@ -449,7 +468,7 @@ LaserClaw/
 |-- docker-compose.yml
 |-- docker-compose.dev.yml
 |-- pyproject.toml
-|-- Launch-LaserClaw.bat
+|-- Launch-BeamWeft.bat
 |-- README.md
 `-- READMEcn.md
 ```

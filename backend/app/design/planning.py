@@ -5,17 +5,15 @@ import math
 import re
 from collections import Counter
 
-BK7_SOURCE = "https://media.schott.com/api/public/content/41e799d0bf874807a0bb8e702fbb75b5?v=54856406"
+from .assessment import PUMP_MEASUREMENTS
+from ..inventory.crystals import material_key
+
 CRYSTAL_SOURCE = "https://www.crystech.com/Laser_Crystal/446.html"
 
 
-def bk7_index(wavelength_nm):
-    l2 = (wavelength_nm / 1000) ** 2
-    return math.sqrt(1 + sum(b * l2 / (l2 - c) for b, c in [
-        (1.03961212, .00600069867), (.231792344, .0200179144), (1.01046945, 103.560653)]))
-
-
-def resolve_inputs(facts, inventory):
+def resolve_inputs(facts, inventory, *, assumption_policy="exploratory"):
+    if assumption_policy not in {"evidence_only", "exploratory"}:
+        raise ValueError("assumption_policy must be evidence_only or exploratory")
     values = {key: fact["value"] for key, fact in facts.items()}
     assumptions, issues, bindings = [], [], {}
     lookup = {row["id"]: row for row in inventory}
@@ -48,13 +46,13 @@ def resolve_inputs(facts, inventory):
                 else:
                     propose(key, focal, f"{role} 库存焦距", f"来自指定库存 #{item['id']}：{item['name']}。")
             else:
-                issues.append({"level": "blocking", "text": f"指定 {role} 没有可用的正焦距，不能替该元件猜一个焦距。"})
+                issues.append({"level": "verify" if assumption_policy == "evidence_only" else "blocking", "text": f"指定 {role} 没有可用的正焦距，不能替该元件猜一个焦距。"})
         if role in {"M1", "M2"}:
             prefix = "input" if role == "M1" else "output"
             roc = item.get("roc_mm")
             flat = bool(item.get("roc_is_flat"))
             if not flat and (not roc or roc <= 0):
-                issues.append({"level": "blocking", "text": f"指定 {role} 需要明确平面或正曲率凹面；未知曲率不能替代。"})
+                issues.append({"level": "verify" if assumption_policy == "evidence_only" else "blocking", "text": f"指定 {role} 需要明确平面或正曲率凹面；未知曲率不能替代。"})
             elif (flat and values.get(f"{prefix}_roc_mm")) or (f"{prefix}_mirror_flat" in values and values[f"{prefix}_mirror_flat"] != flat) or (not flat and f"{prefix}_roc_mm" in values and not math.isclose(values[f"{prefix}_roc_mm"], roc, rel_tol=.01)):
                 issues.append({"level": "blocking", "text": f"指定 {role} 库存的曲率与固定曲率约束冲突。"})
             else:
@@ -64,8 +62,11 @@ def resolve_inputs(facts, inventory):
         if role == "M2":
             for band in item.get("coatings", []):
                 if (band["function"] == "PR" and band["wl_min_nm"] <= values.get("laser_wavelength_nm", 0) <= band["wl_max_nm"]
-                        and band.get("value_type") == "T" and band.get("comparator") == "=" and band.get("value_pct")):
-                    propose("oc_transmission_pct", band["value_pct"], "M2 库存透过率", f"库存 #{item['id']} 的标称 T；不是 R 的无损换算。")
+                        and band.get("value_type") == "T" and band.get("comparator") == "=" and band.get("value_pct") is not None):
+                    if "oc_transmission_pct" in values and not math.isclose(values["oc_transmission_pct"], band["value_pct"], abs_tol=.01):
+                        issues.append({"level": "blocking", "text": f"指定 M2 的标称透过率与工程条件冲突，请核对库存 #{item['id']} 的实测波段和表面。"})
+                    else:
+                        propose("oc_transmission_pct", band["value_pct"], "M2 库存透过率", f"库存 #{item['id']} 的标称 T；不是 R 的无损换算。")
         if role == "crystal":
             for key, field in [("gain_material", "material"), ("crystal_length_mm", "thickness_mm"),
                                ("cut_axis", "cut_axis"), ("doping_pct", "doping_pct")]:
@@ -75,9 +76,18 @@ def resolve_inputs(facts, inventory):
                     else:
                         propose(key, item[field], "晶体库存参数", f"来自指定库存 #{item['id']} 的 {field}。")
 
+    for prefix in ("input", "output"):
+        if values.get(f"{prefix}_mirror_flat") and values.get(f"{prefix}_roc_mm"):
+            issues.append({"level": "blocking", "text": f"{prefix} 镜同时固定为平面和有限曲率，请解除已过时的曲率条件。"})
+        if values.get(f"{prefix}_mirror_flat") is False and not values.get(f"{prefix}_roc_mm"):
+            issues.append({"level": "verify" if assumption_policy == "evidence_only" else "blocking", "text": f"{prefix} 镜已固定为曲面，但尚无曲率。"})
+    if assumption_policy == "evidence_only":
+        return values, assumptions, issues, bindings
+
     if values.get("pump_wavelength_nm") and values.get("laser_wavelength_nm"):
         propose("cavity_type", "linear", "腔型方案", "未固定腔型时，先设计端泵直线腔。")
-        propose("pump_source", "fiber", "泵浦出光方案", "未指定出光方式时，先以光纤耦合泵浦和双透镜成像设计。")
+        if all(values.get(key) is None for key in PUMP_MEASUREMENTS):
+            propose("pump_source", "fiber", "泵浦出光方案", "未指定出光方式时，先以光纤耦合泵浦和双透镜成像设计。")
     # A missing crystal can be a procurement decision. Never resize an existing crystal.
     known_crystal = any(k in values for k in ["crystal_length_mm", "active_length_mm", "crystal_part", "crystal_inventory_id"])
     if not known_crystal:
@@ -96,7 +106,7 @@ def resolve_inputs(facts, inventory):
             bindings["crystal"] = {"id": item["id"], "name": item["name"], "mode": "proposed", "raw_spec": item.get("raw_spec")}
             known_crystal = True
             break
-    if "yvo4" in str(values.get("gain_material", "")).lower() and not known_crystal:
+    if material_key(values.get("gain_material")) == "nd:yvo4" and not known_crystal:
         for key, value in {"crystal_length_mm": 10, "active_length_mm": 10, "front_cap_mm": 0,
                            "rear_cap_mm": 0, "crystal_width_mm": 3, "crystal_height_mm": 3, "doping_pct": .3}.items():
             propose(key, value, "待购晶体参考规格", "先用厂家 3×3×10 mm、0.30% Nd:YVO4 规格建立候选；这是采购方案，不是用户已有晶体。", CRYSTAL_SOURCE)
@@ -121,20 +131,12 @@ def resolve_inputs(facts, inventory):
         else:
             propose(field, 100, f"{role} 待购焦距", "库存没有匹配件，先采用 f=100 mm 的采购方案；孔径由泵浦参数约束。")
 
-    if values.get("collimator_roc_mm") and not values.get("collimator_f_mm"):
-        propose("collimator_index", bk7_index(pump), "R50 透镜材料假设", "按 N-BK7 的 Sellmeier 色散估算，实际材料/主面不同会改变位置；该值不写入事实卡。", BK7_SOURCE)
-    if values.get("collimator_owned") and not values.get("collimator_f_mm") and not values.get("collimator_roc_mm"):
-        propose("collimator_f_mm", 100, "已有准直镜焦距假设", "没有任何曲率或焦距信息，暂用 100 mm 做位置方案。")
-    if values.get("focus_lens_owned") and not values.get("focus_f_mm"):
-        propose("focus_f_mm", 100, "已有聚焦镜焦距假设", "暂按 100 mm 建模，实物焦距确认后自动重算。")
     if values.get("input_mirror_near_crystal") and "crystal_front_mm" not in values:
         propose("crystal_front_mm", 3, "输入镜近晶体间隙", "将“靠近”实现为 3 mm 镀膜面到前端面间隙；可按镜架尺寸修改，不是机械接触。")
     if not values.get("output_mirror_owned"):
         propose("oc_transmission_pct", 5, "输出耦合率起始方案", "先选 T=5% 并比较 1/3/5/10% 的阈值；缺少增益/损耗时不声称功率最优。")
-    for prefix in ("input", "output"):
-        if values.get(f"{prefix}_mirror_flat") and values.get(f"{prefix}_roc_mm"):
-            issues.append({"level": "blocking", "text": f"{prefix} 镜同时固定为平面和有限曲率，请解除已过时的曲率条件。"})
-        if values.get(f"{prefix}_mirror_flat") is False and not values.get(f"{prefix}_roc_mm"):
-            issues.append({"level": "blocking", "text": f"{prefix} 镜已固定为曲面，但尚无曲率。"})
-    propose("min_output_gap_mm", 5, "M2 最小装配间隙", "先给镜架留 5 mm，固定距离或真实机械限制优先。")
+    if "output_gap_mm" in values:
+        propose("min_output_gap_mm", min(5, values["output_gap_mm"]), "M2 扫描下界", "用于探索性扫描，保留用户固定的位置。")
+    else:
+        propose("min_output_gap_mm", min(5, values.get("max_output_gap_mm", 5)), "M2 最小装配间隙", "探索镜架间隙时先留 5 mm；若用户给定更小上界，服从该界限。")
     return values, assumptions, issues, bindings

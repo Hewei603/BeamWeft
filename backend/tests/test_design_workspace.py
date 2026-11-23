@@ -2,14 +2,17 @@
 import math
 from copy import deepcopy
 from datetime import timezone
+from hashlib import sha256
 
 import pytest
+from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
 from app.design import service
 from app.design.brief import merge_facts, mock_extract, validate_fact
 from app.design.solver import _pump_layout, match_mirrors, solve_design, yvo4_index
-from app.models import AgentTask, Attachment, GeneratedContent
+from app.models import AgentTask, AgentToolCall, Attachment, GeneratedContent
+from app.run_ownership import RunLease
 
 
 VALUES = {
@@ -35,14 +38,16 @@ def test_given_case_keeps_missing_pump_geometry_and_coating(design):
     assert design["facts"]["ar_wavelengths_nm"]["value"] == [880, 1064, 1342, 1525]
     assert any("AR@808" in issue["text"] for issue in design["issues"])
     assert design["power_prediction"]["output_w"] is None
-    assert {q["key"] for q in design["questions"]} == {"fiber_core_um", "fiber_na"}
+    assert {q["key"] for q in design["questions"]} == {"collimator_f_mm", "fiber_core_um", "fiber_na"}
     assert "collimator_index" not in design["facts"]
-    assert design["resolved_inputs"]["collimator_index"] == pytest.approx(1.51062, abs=1e-4)
+    assert "collimator_index" not in design["resolved_inputs"]
     for c in design["candidates"]:
         assert c["crystal"]["thickness_mm"] == 30
         assert abs(c["m"]) < 1
-        assert c["positions"][0]["z_mm"] < 0
-        assert c["pump"]["status"] == "assumed_beam"
+        assert c["pump"]["positions"]["focus_lens"] < 0
+        assert c["pump"]["status"] == "needs_specs"
+        assert c["pump"]["points"] == []
+        assert {"image_radius_mm", "estimated_m2"}.isdisjoint(c["pump"])
         assert c["length_mm"] > c["crystal"]["position_mm"] + 30
         assert c["bom"][0]["status"] == "purchase"
 
@@ -84,6 +89,31 @@ def test_corrected_focal_length_changes_pump_geometry():
     second = _pump_layout({**VALUES, "collimator_f_mm": 100, "fiber_core_um": 200, "fiber_na": 0.22}, 5, 20, 30, 2.2)
     assert first["image_radius_mm"] == 2 * second["image_radius_mm"]
     assert first["positions"]["source"] != second["positions"]["source"]
+
+
+@pytest.mark.parametrize("source", [{"fiber_na": .16}, {"fiber_core_um": 130}])
+def test_mechanical_conjugates_survive_incomplete_launch_data(source):
+    values = {**VALUES, "pump_wavelength_nm": 915, "collimator_f_mm": 30, **source}
+    pump = _pump_layout(values, 5, 20, 30, 2.2)
+    assert pump["status"] == "geometry_only" and not pump["points"]
+    assert pump["positions"]["collimator"] - pump["positions"]["source"] == pytest.approx(30)
+    assert ("geometric_core_image_radius_mm" in pump) == ("fiber_core_um" in source)
+    assert "image_radius_mm" not in pump and "estimated_m2" not in pump
+
+
+def test_saved_assumed_launch_can_be_replayed_only_with_recorded_evidence():
+    from app.design.analysis import probe_design
+
+    design = solve_design(facts(collimator_f_mm=75, fiber_core_um=140, fiber_na=.16), [])
+    candidate = deepcopy(design["candidates"][0])
+    source = candidate["pump"]["positions"]["source"]
+    orig = probe_design(design, candidate, mode="pump", z_mm=source)
+    del design["resolved_inputs"]["fiber_core_um"], design["resolved_inputs"]["fiber_na"]
+    candidate["pump"].update(status="assumed_beam", assumed_na=.16)
+    assert probe_design(design, candidate, mode="pump", z_mm=source) == orig
+    del candidate["pump"]["assumed_na"]
+    with pytest.raises(ValueError, match="角分布"):
+        probe_design(design, candidate, mode="pump", z_mm=source)
 
 
 def test_fully_specified_input_and_impossible_focus():
@@ -171,15 +201,33 @@ def test_title_only_case_defaults_and_mock_background_run(design_client):
     assert len(state["messages"]) == 2
     assert state["facts"]["pump_power_w"]["value"] == 6
     design = state["revisions"][0]["content"]["engineering_design"]
+    assert design["assumption_policy"] == "exploratory"
     assert design["status"] == "preliminary" and design["candidates"]
     assert "crystal_length_mm" not in state["facts"]  # proposed purchase, not a user fact
+
+
+def test_explicit_evidence_policy_persists_in_request_and_result(design_client):
+    cid = design_client.post("/api/cases", json={"title": "泵浦成像校核"}).json()["id"]
+    root = f"/api/cases/{cid}/design"
+    constraints = {"collimator_f_mm": 60, "focus_f_mm": 120}
+    request = {"message": "核对已有焦距可计算的量", "constraints": constraints}
+    assert design_client.post(root + "/runs", json={**request, "assumption_policy": "guess"}).status_code == 422
+    assert design_client.post(root + "/runs", json={**request, "assumption_policy": "evidence_only"}).status_code == 202
+    state = design_client.get(root).json()
+    assert state["messages"][0]["metadata"]["assumption_policy"] == "evidence_only"
+    assert state["messages"][0]["metadata"]["constraints"] == constraints
+    plan = state["revisions"][0]["content"]["engineering_design"]
+    assert plan["assumption_policy"] == "evidence_only"
+    assert plan["evidence_assessment"]["pump_imaging"]["magnification"] == 2
+    assert not plan["candidates"] and "gain_material" not in state["facts"]
 
 
 def test_photo_to_design_revisions_export_and_failure_preservation(design_client, db, monkeypatch, tmp_path):
     cid = design_client.post("/api/cases", json={"title": "标签设计"}).json()["id"]
     image = tmp_path / "crystal.jpg"
-    image.write_bytes(b"test image handled by fake vision")
-    attachment = Attachment(case_id=cid, filename="crystal.jpg", filepath=str(image))
+    Image.new("RGB", (3, 2), "white").save(image, format="JPEG")
+    attachment = Attachment(case_id=cid, filename="crystal.jpg", filepath=str(image),
+                            content_hash=sha256(image.read_bytes()).hexdigest())
     db.add(attachment)
     db.commit()
     aid = attachment.id
@@ -200,6 +248,7 @@ def test_photo_to_design_revisions_export_and_failure_preservation(design_client
         downloaded = design_client.get(f"/api/cases/{cid}/design/{rid}/{export}.csv?candidate=1")
         assert downloaded.status_code == 200
         assert "M1" in downloaded.text
+        assert "条件设计探索" in downloaded.text and "本方案的假设与约定" in downloaded.text
     assert design_client.get(f"/api/cases/{cid}/design/{rid}/positions.csv?candidate=0").status_code == 404
 
     class Correction:
@@ -226,6 +275,15 @@ def test_photo_to_design_revisions_export_and_failure_preservation(design_client
     assert len(state["revisions"]) == 2 and state["facts"]["pump_power_w"]["value"] == 4
     assert db.query(GeneratedContent).count() == 2
 
+    # Another decodable photo at the same path must not become a reading of the archived label.
+    Image.new("RGB", (3, 2), "blue").save(image, format="JPEG")
+    monkeypatch.setattr(service, "get_ai_provider", lambda: pytest.fail("substituted label reached the provider"))
+    design_client.post(f"/api/cases/{cid}/design/runs", json={"message": "核对原标签", "attachment_ids": [aid]})
+    state = design_client.get(f"/api/cases/{cid}/design").json()
+    assert state["runs"][0]["status"] == "failed"
+    assert "指纹不符" in str(state["runs"][0])
+    assert len(state["revisions"]) == 2 and state["facts"]["pump_power_w"]["value"] == 4
+
 
 def test_duplicate_run_and_foreign_attachment_rejected(design_client, db):
     cid = design_client.post("/api/cases", json={"title": "已有运行"}).json()["id"]
@@ -236,16 +294,30 @@ def test_duplicate_run_and_foreign_attachment_rejected(design_client, db):
     assert design_client.post(f"/api/cases/{cid}/design/runs", json={"message": "设计"}).status_code == 409
 
 
-def test_restart_recovers_subsecond_old_task_but_keeps_accepted_run(design_client, db, monkeypatch):
+def test_design_uses_owner_witness_instead_of_subsecond_clock_or_another_workers_local_set(design_client, db, monkeypatch):
     cid = design_client.post("/api/cases", json={"title": "恢复任务"}).json()["id"]
     task = AgentTask(case_id=cid, goal="pending", mode="design", status="running")
     db.add(task)
     db.commit()
     monkeypatch.setattr(service, "PROCESS_STARTED", task.created_at.replace(tzinfo=timezone.utc).timestamp() + 0.5)
-    monkeypatch.setattr(service, "ACTIVE_RUNS", {task.id})
-    assert design_client.get(f"/api/cases/{cid}/design").json()["runs"][0]["status"] == "running"
-    service.ACTIVE_RUNS.clear()
+    monkeypatch.setattr(service, "ACTIVE_RUNS", set())
+    view = f"/api/cases/{cid}/design"
+    assert design_client.get(view).json()["runs"][0]["execution_owner_state"] == "unverified"
+    receipt = AgentToolCall(task_id=task.id, tool_name="design_request", input_json={})
+    lease = RunLease(db.get_bind())
+    try:
+        receipt.input_json = {"execution_owner":lease.stamp}
+        db.add(receipt)
+        db.commit()
+        assert design_client.get(view).json()["runs"][0]["execution_owner_state"] == "live"
+        assert design_client.post(f"{view}/runs/{task.id}/end-unverified").status_code == 409
+    finally:
+        lease.close()
     assert design_client.get(f"/api/cases/{cid}/design").json()["runs"][0]["status"] == "failed"
+    legacy = AgentTask(case_id=cid, goal="旧格式", mode="design", status="pending")
+    db.add(legacy)
+    db.commit()
+    assert design_client.post(f"{view}/runs/{legacy.id}/end-unverified").json()["status"] == "cancelled"
 
 
 def test_distance_constraint_and_near_m1_are_hard_constraints():
@@ -259,7 +331,7 @@ def test_distance_constraint_and_near_m1_are_hard_constraints():
     assert c['distance_scan']['cold_upper_exclusive_mm'] == pytest.approx(200 - 3 - 30 / yvo4_index(1064))
     assert any(row['gap_mm'] == 10 and row['stable'] for row in c['distance_scan']['rows'])
     assert any(not row['stable'] for row in c['distance_scan']['rows'])
-    assert all(p['z_mm'] is not None for p in c['positions'])
+    assert {p['id'] for p in c['positions'] if p['z_mm'] is None} == {'source', 'collimator'}
 
 
 def test_thermal_trace_matches_full_matrix_across_stable_and_unstable_regions():
@@ -323,7 +395,7 @@ def test_inventory_can_fill_missing_lenses_and_crystal_without_creating_facts():
 
 
 def test_nominal_fiber_image_does_not_become_measured_mode_target():
-    initial = facts(fiber_core_um=9, fiber_na=.12, output_roc_mm=200, output_gap_mm=10, crystal_front_mm=3)
+    initial = facts(collimator_f_mm=100, fiber_core_um=9, fiber_na=.12, output_roc_mm=200, output_gap_mm=10, crystal_front_mm=3)
     initial['fiber_core_um']['verification'] = 'image_reading'
     result = solve_design(initial, [])
     assert result['optimization']['target_mode_radius_um'] == 150
@@ -369,7 +441,7 @@ def test_title_inventory_context_and_structured_constraint_roundtrip(design_clie
     exported = design_client.get(f"/api/cases/{cid}/design/{revision['id']}/cavity.rez")
     assert exported.status_code == 200
     assert exported.json()['builtin_params']['lambda']['value'] == 1064
-    assert design_client.post(f'/api/cases/{cid}/design/runs', json={'message': 'bad', 'constraints': {'source_z_mm': 30}}).status_code == 422
+    assert design_client.post(f'/api/cases/{cid}/design/runs', json={'message': 'bad', 'constraints': {'source_z_mm': 10001}}).status_code == 422
     assert design_client.post(f'/api/cases/{cid}/design/runs', json={'message': 'bad', 'constraints': {'unknown': 1}}).status_code == 422
     design_client.post(f'/api/cases/{cid}/design/runs', json={'message': '解除固定距离', 'constraints': {'output_gap_mm': None}})
     assert 'output_gap_mm' not in design_client.get(f'/api/cases/{cid}/design').json()['facts']

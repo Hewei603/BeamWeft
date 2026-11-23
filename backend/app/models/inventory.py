@@ -29,7 +29,7 @@ class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    category = Column(String(50), nullable=False, index=True)  # mirror|lens|gain_crystal|nonlinear_crystal|window|other
+    category = Column(String(50), nullable=False, index=True)  # mirror|lens|gain_crystal|nonlinear_crystal|crystal_other|window|other
     name = Column(String(255), nullable=False, index=True)
     # geometry
     diameter_mm = Column(Float, nullable=True)
@@ -44,6 +44,7 @@ class InventoryItem(Base):
     cut_axis = Column(String(50), nullable=True)     # e.g. "c-cut"; NULL = unknown
     doping_pct = Column(Float, nullable=True)
     material = Column(String(100), nullable=True)    # e.g. "Nd:YAG", "LBO"
+    crystal_spec = Column(JSON, nullable=True)       # reviewed ordered crystal sections, including absorbers
     # logistics
     quantity = Column(Float, default=1)
     location = Column(String(100), nullable=True, index=True)

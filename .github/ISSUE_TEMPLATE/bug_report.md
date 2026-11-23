@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible LaserClaw bug
+about: Report a reproducible BeamWeft bug
 title: "[Bug]: "
 labels: bug
 assignees: ""

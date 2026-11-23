@@ -1,4 +1,4 @@
-"""Benchmark LaserClaw's resume-grade RAG and AI workflow metrics.
+"""Benchmark BeamWeft's resume-grade RAG and AI workflow metrics.
 
 The script is intentionally local and reproducible:
 - loads the repository root .env without printing secrets

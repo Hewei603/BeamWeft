@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 from threading import RLock
+from typing import Literal, get_args
 
 # Suggestions start with the models already supported by the application.
 # The UI also accepts an arbitrary model ID for compatible endpoints.
@@ -20,6 +21,11 @@ PROVIDERS = {
     "anthropic": "Anthropic · Claude",
 }
 COMPATIBLE_PROVIDERS = {"openai", "deepseek", "qwen", "zhipu", "moonshot"}
+OpenAIReasoningEffort = Literal["auto", "none", "minimal", "low", "medium", "high", "xhigh"]
+REASONING_EFFORTS = {
+    "openai": get_args(OpenAIReasoningEffort),
+    "codex_exec": ("low", "medium", "high", "xhigh", "max", "ultra"),
+}
 MODEL_SUGGESTIONS = {
     "codex_exec": ["gpt-6.1-sol"],
     "deepseek": ["deepseek-chat", "deepseek-reasoner"],
@@ -35,6 +41,7 @@ ALLOWED_FIELDS = {"ai_provider"} | {
     for field in ("api_key", "model")
 } | {f"{provider}_base_url" for provider in COMPATIBLE_PROVIDERS} | {
     "codex_exec_model", "codex_exec_path", "codex_exec_timeout_seconds", "codex_exec_reasoning_effort",
+    "openai_reasoning_effort",
 }
 SETTINGS_LOCK = RLock()
 
@@ -63,6 +70,8 @@ def read_overrides(settings) -> dict:
             raise ValueError("Invalid settings document")
         if data.get("ai_provider", "mock") not in PROVIDERS:
             raise ValueError("Unknown provider")
+        if "openai_reasoning_effort" in data and data["openai_reasoning_effort"] not in REASONING_EFFORTS["openai"]:
+            raise ValueError("Invalid OpenAI reasoning effort")
         return data
     except (ValueError, OSError) as exc:
         # Never include file contents (which contain credentials) in errors.

@@ -2,10 +2,14 @@
 import asyncio
 import json
 import math
+from hashlib import sha256
+from io import BytesIO
 from types import SimpleNamespace
 
-import pytest
+import httpx
 import numpy as np
+import pytest
+from PIL import Image
 from pydantic import ValidationError
 from sqlalchemy.orm import sessionmaker
 
@@ -14,6 +18,17 @@ from app.workbench.optics import OpticalSystem, analyze_system, scan_system
 from app.providers.tool_calling import openai_turn
 from app.workbench import service
 from app.workbench.contracts import Finish
+
+
+def test_failed_attempt_is_linked_to_its_diagnosis_and_a_successful_retry_can_complete():
+    proposed = {"status":"completed", "summary":"已检查记录。"}
+    blocked = service.validate_finish(proposed, {5:"failed", 7:"needs_input"})
+    assert blocked.status == "partial" and blocked.diagnostic_tool_call_ids == [5, 7]
+    assert blocked.evidence_tool_call_ids == []
+    retried = service.validate_finish({**proposed, "evidence_tool_call_ids":[8]}, {5:"failed", 8:"completed"})
+    assert retried.status == "completed" and not retried.diagnostic_tool_call_ids
+    with pytest.raises(ValueError):
+        service.validate_finish({**proposed, "diagnostic_tool_call_ids":[8]}, {8:"completed"})
 
 
 def plane_cavity(length=50, radius=100):
@@ -39,7 +54,7 @@ def test_slab_uses_physical_axis_and_reduced_diffraction_length():
     expected_w = math.sqrt(1064e-6 / math.pi * math.sqrt(35 * 165))
     assert result["input"]["radius_mm"] == pytest.approx(expected_w)
     assert result["output"]["z_mm"] == 50  # not reduced length 35
-    incident = [p for p in result["samples"] if p["n"] == 1][-1]
+    incident = next(p for p in result["samples"] if p["n"] == 1 and p["z_mm"] == 20)
     transmitted = [p for p in result["samples"] if p["n"] == 2][0]
     assert incident["radius_mm"] == pytest.approx(transmitted["radius_mm"])
 
@@ -137,12 +152,13 @@ def test_native_tool_loop_repairs_error_then_computes_and_persists(workbench, db
     case, client = workbench
     provider = use_script(monkeypatch, [
         ("analyze_optical_system", {"mode": "single_pass"}),
-        ("analyze_optical_system", plane_cavity()), finish_with_evidence])
+        ("analyze_optical_system", {**plane_cavity(), "purpose":"核对两主平面的稳定性"}), finish_with_evidence])
     response = client.post(f"/api/cases/{case.id}/workbench/runs", json={"message": "计算这个腔模"})
     assert response.status_code == 202
     run = client.get(f"/api/cases/{case.id}/workbench").json()["runs"][0]
     assert run["status"] == "completed"
     assert [c["status"] for c in run["tools"]] == ["failed", "completed", "completed"]
+    assert [s["purpose"] for s in run["steps"] if s["title"] == "analyze_optical_system"] == [None, "核对两主平面的稳定性"]
     assert "Correct the tool arguments" in provider.messages[1][-1]["content"]
     artifact = db.get(GeneratedContent, run["final_content_id"])
     assert artifact.input_tokens == 30 and artifact.output_tokens == 15
@@ -185,7 +201,21 @@ def test_provider_failure_keeps_tool_output_and_partial_artifact(workbench, monk
     run = client.get(f"/api/cases/{case.id}/workbench").json()["runs"][0]
     assert run["status"] == "failed"
     assert run["result"]["status"] == "partial"
+    assert run["result"]["evidence_tool_call_ids"] == [run["tools"][0]["id"]]
     assert run["tools"][0]["output"]["stable_both_planes"]
+
+
+@pytest.mark.parametrize("failed_tool", [False, True])
+def test_interruption_without_successful_calls_preserves_goal_and_reports_failure(workbench, monkeypatch, failed_tool):
+    case, client = workbench
+    script = [("unavailable_method", {})] if failed_tool else []
+    use_script(monkeypatch, [*script, RuntimeError("offline")])
+    goal = "核对采集标定"
+    client.post(f"/api/cases/{case.id}/workbench/runs", json={"message":goal})
+    run = client.get(f"/api/cases/{case.id}/workbench").json()["runs"][0]
+    assert run["status"] == run["result"]["status"] == "failed"
+    assert run["goal"] == goal and not run["result"]["evidence_tool_call_ids"]
+    assert "尚无可引用的工具结果" in run["result"]["summary"]
 
 
 def test_unknown_tool_and_fake_evidence_are_rejected(workbench, monkeypatch):
@@ -213,6 +243,80 @@ def test_attachment_read_and_case_boundary(workbench, db, monkeypatch, tmp_path)
     assert response.status_code == 404
 
 
+def test_planner_reads_mixed_originals_and_only_credits_delivered_sources(workbench, monkeypatch):
+    case, client = workbench
+    root = f"/api/cases/{case.id}"
+
+    def upload(name, data):
+        response = client.post(root + "/attachments", files={"file": (name, data, "application/octet-stream")})
+        assert response.status_code == 201, response.text
+        return response.json()["id"]
+
+    buf = BytesIO()
+    Image.new("I;16", (3, 2), 1000).save(buf, format="TIFF")
+    photo = upload("camera.capture", buf.getvalue())
+    raw = b"instrument configuration\npump wavelength = 808 nm\n" + b"unrecorded\n" * 480 + b"beyond excerpt 12 W"
+    config = upload("settings.txt", raw)
+    spectrum = upload("scan.csv", b"wavelength_nm,counts\n500,14\n501,32\n")
+    binary = upload("raw.wfm", b"\x01\x00binary\x00readout")
+    provider = use_script(monkeypatch, [
+        ("design_linear_laser", {"message": "读取元件标签"}),
+        ("inspect_measurement_table", {"attachment_id": spectrum}),
+        finish_with_evidence,
+    ])
+    async def extract(context, images):
+        assert [i["id"] for i in images] == [photo]
+        assert images[0]["mime"] == "image/png" and images[0]["data"].startswith(b"\x89PNG")
+        rows = {i["attachment_id"]: i for i in context["selected_originals"]}
+        assert rows[photo]["display_copy"] and rows[photo]["content_hash"] == sha256(buf.getvalue()).hexdigest()
+        assert rows[config]["next_offset"] == len(rows[config]["text"]) and "12 W" not in rows[config]["text"]
+        assert rows[spectrum]["table_candidate"] and rows[binary]["status"] == "unsupported"
+        return {"facts": [
+            {"key": "pump_wavelength_nm", "value": 808, "quote": "pump wavelength = 808 nm", "source": f"file:{config}"},
+            {"key": "crystal_part", "value": "label-A", "quote": "label-A", "source": f"image:{photo}"},
+            {"key": "focus_f_mm", "value": 55, "quote": "made up", "source": f"image:{binary}"},
+            {"key": "gain_material", "value": "glass", "quote": "glass", "source": f"image:{spectrum}"},
+            {"key": "pump_power_w", "value": 12, "quote": "beyond excerpt 12 W", "source": f"file:{config}"},
+        ]}
+
+    provider.extract_design_facts = extract
+    response = client.post(root + "/workbench/runs", json={"message": "读取元件资料和光谱。",
+                                                            "attachment_ids": [photo, config, spectrum, binary]})
+    assert response.status_code == 202
+    run = client.get(root + "/workbench").json()["runs"][0]
+    design = run["tools"][0]["output"]
+    assert "engineering_design" in design, design
+    plan = design["engineering_design"]
+    assert plan["assumption_policy"] == "evidence_only" and not plan["assumptions"]
+    assert plan["evidence_assessment"]["cold_cavity"]["status"] == "needs_input"
+    assert set(plan["facts"]) == {"pump_wavelength_nm", "crystal_part"}
+    record = plan["facts"]["pump_wavelength_nm"]
+    assert record["verification"] == "file_quote"
+    assert record["source_file"]["content_hash"] == sha256(raw).hexdigest()
+    assert {f["attachment_id"] for f in plan["intake_files"]} == {photo, config, spectrum, binary}
+    assert not any("text" in f or "data" in f for f in plan["intake_files"])
+    assert run["tools"][1]["output"]["maximum"] == [3, 501, 32]
+
+
+def test_planner_can_explicitly_explore_without_adopting_assumptions(workbench, monkeypatch):
+    case, client = workbench
+    root = f"/api/cases/{case.id}"
+    provider = use_script(monkeypatch, [
+        ("design_linear_laser", {"assumption_policy": "exploratory"}),
+        finish_with_evidence,
+    ])
+
+    async def extract(context, images):
+        return {"facts": []}
+
+    provider.extract_design_facts = extract
+    assert client.post(root + "/workbench/runs", json={"message": "请允许使用假设，做一次条件设计探索。"}).status_code == 202
+    run = client.get(root + "/workbench").json()["runs"][0]
+    plan = run["tools"][0]["output"]["engineering_design"]
+    assert plan["assumption_policy"] == "exploratory"
+    assert not plan["facts"] and not client.get(root + "/design").json()["facts"]
+
+
 def test_round_limit_returns_partial_not_success(workbench, monkeypatch):
     case, client = workbench
     monkeypatch.setattr(service, "MAX_ROUNDS", 2)
@@ -238,9 +342,11 @@ def test_cancel_during_model_call_does_not_execute_returned_tool(workbench, db, 
     client.post(f"/api/cases/{case.id}/workbench/runs", json={"message": "run"})
     run = client.get(f"/api/cases/{case.id}/workbench").json()["runs"][0]
     assert run["status"] == "cancelled" and not run["tools"]
+    assert run["result"]["status"] == "cancelled"
 
 
-def test_responses_preserves_native_reasoning_and_tool_call_outputs():
+@pytest.mark.parametrize("effort", [None, "none", "high"])
+def test_responses_preserves_native_reasoning_and_tool_call_outputs(effort):
     captured = {}
 
     def create(**kwargs):
@@ -252,10 +358,14 @@ def test_responses_preserves_native_reasoning_and_tool_call_outputs():
     provider = SimpleNamespace(model="gpt-6.1-sol", client=SimpleNamespace(responses=SimpleNamespace(create=create)))
     items = [{"type": "reasoning", "encrypted_content": "opaque", "summary": []}, {"type": "function_call", "call_id": "first", "name": "list_inventory", "arguments": "{}"}]
     result = asyncio.run(openai_turn(provider, "instructions", [{"role": "user", "content": "task"}, {"role": "assistant", "items": items},
-                                  {"role": "tool", "call_id": "first", "content": "empty"}], []))
+                                  {"role": "tool", "call_id": "first", "content": "empty"}], [], reasoning_effort=effort))
     assert captured["input"][1:3] == items
     assert captured["input"][-1]["call_id"] == "first"
     assert captured["store"] is False and captured["model"] == "gpt-6.1-sol"
+    if effort is None:
+        assert "reasoning" not in captured
+    else:
+        assert captured["reasoning"] == {"effort": effort}
     assert result["_usage"]["total_tokens"] == 7
 
 
@@ -278,6 +388,9 @@ def test_followup_can_read_exact_prior_tool_and_history_is_loaded_on_demand(work
     use_script(monkeypatch, [("analyze_optical_system", plane_cavity()), finish_with_evidence])
     client.post(f"/api/cases/{case.id}/workbench/runs", json={"message": "算冷腔"})
     original = client.get(f"/api/cases/{case.id}/workbench").json()["runs"][0]
+    overview = client.get(f"/api/cases/{case.id}/workbench",params={"include_latest_tools":False}).json()["runs"][0]
+    assert overview == {**original, "tools":[], "tools_loaded":False}
+    assert client.get(f"/api/cases/{case.id}/workbench/runs/{original['id']}").json() == original
     call_id = original["tools"][0]["id"]
     provider = use_script(monkeypatch, [("read_tool_result", {"tool_call_id": call_id, "path": "planes.tangential.input"}), finish_with_evidence])
     client.post(f"/api/cases/{case.id}/workbench/runs", json={"message": "复用前一次的输入面光斑"})
@@ -289,6 +402,21 @@ def test_followup_can_read_exact_prior_tool_and_history_is_loaded_on_demand(work
     assert any(c["id"] == call_id for c in json.loads(provider.messages[0][0]["content"])["saved_tool_results"])
     loaded = client.get(f"/api/cases/{case.id}/workbench/runs/{original['id']}").json()
     assert loaded["tools_loaded"] and loaded["tools"][0]["output"]["stable_both_planes"]
+
+
+def test_sample_receipt_locates_nested_originals_and_literal_instrument_keys():
+    from app.workbench.contracts import ToolResultQuery
+    from app.workbench.tools import compact, _result_at_path
+    original = {"probe.v2":[{"data":[i,i+1,i+2,i+3]} for i in range(40)]}
+    view = compact(original, max_items=3, tool_call_id=17)["probe.v2"]
+    index = view["sampled_indices"][-1]
+    args = ToolResultQuery(**view["sampled_items"][-1]["data"]["read_original"])
+    assert args.tool_call_id == 17 and args.path == ["probe.v2",index,"data"]
+    assert _result_at_path(original,args.path) == original["probe.v2"][index]["data"]
+    assert _result_at_path({"train":[15]},"result.train.0") == 15
+    assert _result_at_path({"result":{"train":[18]},"train":[15]},"result.train.0") == 18
+    with pytest.raises(ValueError, match="可用字段为 probe.v2"):
+        _result_at_path(original,["missing"])
 
 
 def test_resolved_narrow_waist_is_not_missed_between_uniform_samples():
@@ -310,6 +438,32 @@ def test_context_compaction_preserves_narrow_interior_minima():
     result = compact(points)
     assert 109 in result["sampled_indices"]
     assert any(p["z_mm"] == 109 and p["w_mm"] == .003 for p in result["sampled_items"])
+
+
+def test_saved_matrix_receipt_preserves_unsampled_extrema_and_allows_exact_row_reads():
+    from app.workbench.contracts import ToolResultQuery
+    from app.workbench.tools import compact, _result_at_path, _record_page
+    grid = [[None] * 64 for _ in range(32)]
+    grid[11][7], grid[9][42] = -0.14, 0.91
+    original = {"sensor.A": {"difference": grid}}
+    view = compact(original, tool_call_id=28)["sensor.A"]["difference"]
+    assert view["shape"] == [32, 64] and view["null_cells"] == 2046
+    assert view["minimum"] == {"value": -0.14, "index": [11, 7]}
+    assert view["maximum"] == {"value": 0.91, "index": [9, 42]}
+    request = ToolResultQuery(**view["read_row"])
+    assert request.tool_call_id == 28 and request.path == ["sensor.A", "difference", 0]
+    row = _result_at_path(original, [*request.path[:-1], 11])
+    assert _record_page(row, 6, 3)["items"] == [None, -0.14, None]
+    assert compact([[None] * 64 for _ in range(32)], tool_call_id=4)["maximum"] is None
+    assert "sampled_items" in compact(grid)  # Unsaved values have no recovery handle.
+    grid[9][42] = "overrange"
+    assert "sampled_items" in compact(grid, tool_call_id=28)
+
+
+def test_model_context_accepts_numeric_instrument_column_labels():
+    from app.workbench.tools import compact
+    assert compact({"labels": {1: "time_us", 2: "reading_mV"}, "_images": []}) == {
+        "labels": {"1": "time_us", "2": "reading_mV"}}
 
 
 def test_crystal_thermal_lens_conventions_agree_after_conversion():
@@ -351,3 +505,39 @@ def test_recover_received_finish_requires_actual_successful_evidence():
     final.status, final.error_message = "failed", error
     final.input_json["evidence_tool_call_ids"] = [999]
     assert service.recover_received_finish(SimpleNamespace(tool_calls=[tool, final])) is None
+
+
+@pytest.mark.parametrize(("status", "body", "expected"), [
+    (401, {"code": "invalid_api_key"}, "对应的 API Key"),
+    (403, {"error": {"type": "permission_error"}}, "已获授权的模型"),
+    (402, {"error": {"type": "payment_required"}}, "供应商账户"),
+    (429, {"error": {"code": "credit_balance_exhausted"}}, "恢复可用额度"),
+    (429, {"code": "insufficient_quota"}, "恢复可用额度"),
+    (429, {"code": "rate_limit_exceeded"}, "限流窗口"),
+    (429, {"type": "rate_limit_error"}, "降低并发请求数"),
+    (429, {"error": {"code": ["malformed"]}}, "限流和账户额度"),
+])
+def test_provider_error_receipts_identify_remedy_without_echoing_response(status, body, expected):
+    from openai import APIStatusError
+
+    response = httpx.Response(status, request=httpx.Request("POST", "https://example.test/v1/responses"))
+    error = APIStatusError("sensitive upstream text", response=response, body={**body, "message": "private"})
+    reason = service.interruption_reason(error)
+    assert f"HTTP {status}" in reason and expected in reason
+    assert "private" not in reason and "sensitive" not in reason
+
+
+def test_connection_error_receipt_directs_to_backend_network():
+    from openai import APIConnectionError
+
+    reason = service.interruption_reason(APIConnectionError(request=httpx.Request("POST", "https://example.test")))
+    assert "运行后端的电脑" in reason and "代理" in reason
+
+
+def test_model_rejects_requested_effort_without_disclosing_provider_body():
+    from openai import BadRequestError
+
+    response = httpx.Response(400, request=httpx.Request("POST", "https://example.test/v1/responses"))
+    error = BadRequestError("private reply", response=response, body={"param": "reasoning.effort"})
+    reason = service.interruption_reason(error)
+    assert "选择自动" in reason and "private" not in reason

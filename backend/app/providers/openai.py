@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from .base import AIProvider
+from ..agent_settings import COMPATIBLE_PROVIDERS
 from ..config import get_settings
 from ..observability.usage import attach_usage_payload
 
@@ -44,9 +45,9 @@ class OpenAIProvider(AIProvider):
 
     async def agent_turn(self, instructions, messages, tools):
         from .tool_calling import compatible_turn, openai_turn
-        if get_settings().ai_provider in {"deepseek", "qwen", "zhipu", "moonshot"}:
+        if self.compatible_tools:
             return await compatible_turn(self, instructions, messages, tools)
-        return await openai_turn(self, instructions, messages, tools)
+        return await openai_turn(self, instructions, messages, tools, reasoning_effort=self.reasoning_effort)
 
     async def extract_design_facts(self, context: dict, images: list[dict]) -> dict:
         from ..design.brief import extraction_prompt
@@ -61,6 +62,7 @@ class OpenAIProvider(AIProvider):
             model=self.model,
             messages=[{"role": "system", "content": extraction_prompt()}, {"role": "user", "content": content}],
             response_format={"type": "json_object"}, max_completion_tokens=8000, timeout=120,
+            **({"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}),
         )
         if response.choices[0].finish_reason == "length":
             raise RuntimeError("模型需求提取被截断，请拆分说明或减少图片后重试。")
@@ -74,11 +76,22 @@ class OpenAIProvider(AIProvider):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
+        *,
+        settings=None,
     ):
-        settings = get_settings()
+        settings = settings or get_settings()
+        provider_name = settings.ai_provider.lower()
+        self.compatible_tools = provider_name in COMPATIBLE_PROVIDERS and provider_name != "openai"
+        self.reasoning_effort = (
+            settings.openai_reasoning_effort
+            if provider_name == "openai" and settings.openai_reasoning_effort != "auto" else None
+        )
         self.api_key = api_key or settings.openai_api_key
         self.model = model or settings.openai_model
         self.base_url = base_url or settings.openai_base_url
+        self.agent_profile = {"provider": provider_name if self.compatible_tools else "openai", "model": self.model}
+        if not self.compatible_tools:
+            self.agent_profile["reasoning_effort"] = self.reasoning_effort or "auto"
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY is required when AI_PROVIDER=openai")
@@ -103,7 +116,7 @@ class OpenAIProvider(AIProvider):
             """
 
 If the case data contains "computed_physics" with available=true, those numbers
-come from LaserClaw's deterministic physics kernel and are AUTHORITATIVE: quote
+come from BeamWeft's deterministic physics kernel and are AUTHORITATIVE: quote
 the cavity length, waist, spot sizes, element positions and phase-matching
 angles exactly as given (with units), and reference them in the setup and steps.
 Never replace them with your own estimate. If available=false, say the geometry
@@ -188,7 +201,7 @@ Return JSON with this shape:
 
     async def analyze_image(self, image_data: bytes, mime_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
-            "You are LaserClaw's laser experiment visual analysis assistant. "
+            "You are BeamWeft's laser experiment visual analysis assistant. "
             "Analyze photos, simulation drawings, beam spots, and optical layouts. "
             "Be safety-conscious, state uncertainty, and return only valid JSON."
         )
@@ -208,7 +221,7 @@ Return JSON with this shape:
         output_instructions: str,
     ) -> Dict[str, Any]:
         system_prompt = (
-            "You are LaserClaw's laser experiment assistant. "
+            "You are BeamWeft's laser experiment assistant. "
             "Generate practical, safety-conscious content for laser cavity experiments. "
             "Keep the response concise. "
             "Write every human-readable value in the SAME language as the case "
@@ -248,7 +261,9 @@ Return JSON with this shape:
                     "max_completion_tokens": 3000,
                     "timeout": 120,
                 }
-                if self.model.lower().startswith(("gpt-5", "o1", "o3", "o4")):
+                if self.reasoning_effort:
+                    request_kwargs["reasoning_effort"] = self.reasoning_effort
+                elif not self.compatible_tools and self.model.lower().startswith(("gpt-5", "o1", "o3", "o4")):
                     request_kwargs["reasoning_effort"] = "minimal"
 
                 response = await asyncio.to_thread(
@@ -359,6 +374,7 @@ Return JSON with this shape:
             ],
             response_format={"type": "json_object"},
             max_completion_tokens=2500,
+            **({"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}),
             timeout=120,
         )
         parsed = self._parse_json_response(response.choices[0].message.content, task_name)

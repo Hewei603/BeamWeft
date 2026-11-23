@@ -17,8 +17,8 @@ def optical_design():
                   pump_source="fiber", gain_material="Nd:YVO4", cavity_type="linear",
                   crystal_length_mm=30, active_length_mm=18, front_cap_mm=6, rear_cap_mm=6,
                   crystal_width_mm=3, crystal_height_mm=3, doping_pct=.4,
-                  ar_wavelengths_nm=[880, 1064, 1342, 1525], collimator_roc_mm=50,
-                  focus_f_mm=100, fiber_core_um=9, input_mirror_near_crystal=True,
+                  ar_wavelengths_nm=[880, 1064, 1342, 1525], collimator_f_mm=80,
+                  focus_f_mm=100, fiber_core_um=9, fiber_na=.12, input_mirror_near_crystal=True,
                   output_roc_mm=200, output_gap_mm=7)
     return solve_design({k: {"value": v} for k, v in values.items()}, [])
 
@@ -57,6 +57,19 @@ def test_boundaries_keep_continuous_width_and_refracted_wavefront(optical_design
     assert waist["divergence_half_mrad"] == pytest.approx(1064e-3 / math.pi / waist["w_mm"])
     assert a["round_trip"]["determinant"] == pytest.approx(1)
     json.dumps(a, allow_nan=False)
+
+
+def test_archived_pump_analysis_uses_the_recorded_index_or_requests_it(optical_design):
+    archived = deepcopy(optical_design)
+    archived["resolved_inputs"].pop("pump_index")
+    archived["resolved_inputs"]["gain_material"] = "unknown"
+    original = [i for i in archived["assumptions"] if i.get("name") != "泵浦折射率"]
+    archived["assumptions"] = original + [{"name": "泵浦折射率", "value": 1.721234, "basis": "归档运行记录"}]
+    candidate = archived["candidates"][0]
+    assert probe_design(archived, candidate, mode="pump", z_mm=4)["point"]["n"] == 1.721234
+    archived["assumptions"] = original
+    with pytest.raises(ValueError, match="泵浦波长折射率"):
+        probe_design(archived, candidate, mode="pump", z_mm=4)
 
 
 @pytest.mark.parametrize("heat", [50, 100, 500])

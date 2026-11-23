@@ -12,6 +12,8 @@ DEMO_NOTICE = (
 
 
 class MockProvider(AIProvider):
+    agent_profile = {"provider": "mock", "model": "mock"}
+
     async def agent_turn(self, instructions, messages, tools):
         import json
         result = {"status": "needs_input", "summary": "当前是离线演示模式，尚未进行模型推理或仿真。请先在首页配置真实 Agent 模型。",

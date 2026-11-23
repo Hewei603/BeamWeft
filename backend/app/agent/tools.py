@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy.orm import Session
 
+from ..attachment_files import file_reference
 from ..knowledge.retrieval import results_to_citations, search_case_and_global_knowledge
 from ..models import AgentTask, AgentToolCall, CaseComponentItem, CaseModule, ExperimentCase, GeneratedContent
 from ..physics.toolkit import run_cavity_design, run_coating_tmm, run_phase_match
@@ -183,8 +184,7 @@ def list_attachments_payload(case: ExperimentCase) -> dict[str, Any]:
     return {
         "items": [
             {
-                "id": attachment.id,
-                "filename": attachment.filename,
+                **file_reference(attachment),
                 "file_type": attachment.file_type,
             }
             for attachment in case.attachments

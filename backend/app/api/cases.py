@@ -1,24 +1,40 @@
 """Experiment case API routes."""
 from __future__ import annotations
 
-import json
 import os
-import zipfile
+import re
+from hashlib import sha256
 from tempfile import NamedTemporaryFile
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse, PlainTextResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
-from ..auth.acl import accessible_case_ids, assert_case_delete, assert_case_edit, assert_case_view, has_project_role, is_admin
+from ..case_package import PackageError, write_package
+from ..project_details import DetailsConflict, ProjectDetails, project_details
+
+from ..auth.acl import case_visibility, assert_case_delete, assert_case_edit, assert_case_view, has_project_role, is_admin
 from ..auth.security import Principal, get_current_principal
 from ..database import get_db
 from ..knowledge.ingestion import upsert_case_source
-from ..models import Attachment, CaseComponentItem, CaseModule, ExperimentCase, GeneratedContent, KnowledgeSource, Project
+from ..models import Attachment, ExperimentCase, GeneratedContent, Project
 from ..observability.audit import record_audit
 from ..schemas import ExperimentCaseCreate, ExperimentCaseResponse, ExperimentCaseUpdate
 
 router = APIRouter()
+
+
+class CaseDetail(ExperimentCaseResponse):
+    draft_scope: str
+    is_open_document: bool
+    recovered_from: str | None
+
+
+def draft_scope(case, principal):
+    account = f"user:{principal.user_id}" if principal.user_id is not None else f"local:{principal.actor}"
+    return sha256(f"{case.id}|{case.created_at}|{account}".encode()).hexdigest()
 
 
 def get_case_or_404(case_id: int, db: Session) -> ExperimentCase:
@@ -70,11 +86,9 @@ async def list_cases(
 ):
     """List experiment cases."""
     query = db.query(ExperimentCase)
-    visible_ids = accessible_case_ids(db, principal)
-    if visible_ids is not None:
-        if not visible_ids:
-            return []
-        query = query.filter(ExperimentCase.id.in_(visible_ids))
+    restriction = case_visibility(principal)
+    if restriction is not None:
+        query = query.filter(restriction)
     if project_id is not None:
         query = query.filter(ExperimentCase.project_id == project_id)
     if status_filter:
@@ -82,12 +96,50 @@ async def list_cases(
     return query.offset(skip).limit(limit).all()
 
 
-@router.get("/{case_id}", response_model=ExperimentCaseResponse)
-async def get_case(case_id: int, db: Session = Depends(get_db), principal: Principal = Depends(get_current_principal)):
+@router.get("/library")
+def case_library(request: Request, q: str = Query("", max_length=255), before: int | None = Query(None, gt=0),
+                 limit: int = Query(24, ge=1, le=100), db: Session = Depends(get_db),
+                 principal: Principal = Depends(get_current_principal)):
+    """Browse in descending creation order without loading optical models or execution history."""
+    case = ExperimentCase
+    files = select(func.count(Attachment.id)).where(Attachment.case_id == case.id).scalar_subquery()
+    contents = select(GeneratedContent.id).where(GeneratedContent.case_id == case.id)
+    revision = contents.where(GeneratedContent.content_type == "optical_project").order_by(GeneratedContent.id.desc()).limit(1)
+    studies = contents.with_only_columns(func.count(GeneratedContent.id)).where(GeneratedContent.content_type == "scientific_study")
+    query = select(case.id, case.title, func.substr(case.description, 1, 240).label("description"),
+                   case.created_at, case.status, case.project_id, case.cavity_type, case.tags,
+                   files.label("file_count"), revision.scalar_subquery().label("revision_id"),
+                   studies.scalar_subquery().label("study_count"))
+    restriction = case_visibility(principal)
+    if restriction is not None:
+        query = query.where(restriction)
+    if before is not None:
+        query = query.where(case.id < before)
+    if term := q.strip():
+        query = query.where(or_(case.title.icontains(term, autoescape=True),
+                                case.description.icontains(term, autoescape=True)))
+    rows = db.execute(query.order_by(case.id.desc()).limit(limit + 1)).mappings().all()
+    items = [dict(row) for row in rows[:limit]]
+    opened = getattr(request.app.state, "opened_case", None)
+    if opened:
+        for item in items:
+            if item["id"] == opened["case_id"]:
+                item["is_open_document"] = True
+                if opened.get("opening_revision_id") is not None:
+                    item["opening_revision_id"] = opened["opening_revision_id"]
+                break
+    return {"items": items, "next_before": rows[limit - 1]["id"] if len(rows) > limit else None}
+
+
+@router.get("/{case_id}", response_model=CaseDetail)
+async def get_case(case_id: int, request: Request, db: Session = Depends(get_db), principal: Principal = Depends(get_current_principal)):
     """Get one experiment case."""
     case = get_case_or_404(case_id, db)
     assert_case_view(db, case, principal)
-    return case
+    opened = getattr(request.app.state, "opened_case", None)
+    is_open_document = opened is not None and case.id == opened["case_id"]
+    return {**ExperimentCaseResponse.model_validate(case).model_dump(), "draft_scope": draft_scope(case, principal),
+            "is_open_document": is_open_document, "recovered_from": opened.get("recovered_from") if is_open_document else None}
 
 
 @router.put("/{case_id}", response_model=ExperimentCaseResponse)
@@ -112,6 +164,10 @@ def update_case(
             and not has_project_role(db, project.id, principal, "editor")
         ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project editor role required")
+    if "goal" in payload and payload["goal"] is None:
+        payload["goal"] = ""
+    if "title" in payload and not (payload["title"] or "").strip():
+        raise HTTPException(422, "请填写工程名称。")
     for field, value in payload.items():
         setattr(case, field, value)
     upsert_case_source(db, case)
@@ -121,150 +177,74 @@ def update_case(
     return case
 
 
+@router.patch("/{case_id}/details")
+def edit_project_details(case_id: int, payload: ProjectDetails, db: Session = Depends(get_db),
+                         principal: Principal = Depends(get_current_principal)):
+    case = get_case_or_404(case_id, db)
+    assert_case_edit(db, case, principal)
+    try:
+        result = project_details(db, case, payload)
+    except DetailsConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    db.commit()
+    return result
+
+
 @router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_case(case_id: int, db: Session = Depends(get_db), principal: Principal = Depends(get_current_principal)):
+async def delete_case(case_id: int, request: Request, db: Session = Depends(get_db), principal: Principal = Depends(get_current_principal)):
     """Delete an experiment case."""
     case = get_case_or_404(case_id, db)
     assert_case_delete(db, case, principal)
+    opened = getattr(request.app.state, "opened_case", None)
+    if opened and opened["case_id"] == case.id:
+        raise HTTPException(409, "这是此窗口打开的工程文件。完成编辑后可关闭窗口。需要移除磁盘文件时，请在文件管理器中操作。")
     record_audit(db, action="case.delete", resource_type="case", resource_id=str(case.id))
     db.delete(case)
     db.commit()
     return None
 
 
-def _json_default(value):
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)
+def write_case_snapshot(bind, case_id, principal, destination, opening_revision_id=None):
+    with bind.connect() as conn:
+        if conn.dialect.name == "sqlite":
+            conn.exec_driver_sql("BEGIN")
+        elif conn.dialect.name == "postgresql":
+            conn = conn.execution_options(isolation_level="REPEATABLE READ")
+        with Session(conn) as snapshot:
+            case = get_case_or_404(case_id, snapshot)
+            assert_case_view(snapshot, case, principal)
+            write_package(snapshot, case, destination, principal, opening_revision_id)
+            return case.title
 
 
+@router.get("/{case_id}/project-file")
 @router.get("/{case_id}/bundle")
-async def export_case_bundle(
+def export_case_bundle(
     case_id: int,
+    request: Request,
+    revision_id: int | None = Query(None, gt=0),
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ):
-    """Export a complete case bundle as a zip archive."""
-    case = get_case_or_404(case_id, db)
-    assert_case_view(db, case, principal)
-    attachments = db.query(Attachment).filter(Attachment.case_id == case_id).all()
-    generated = db.query(GeneratedContent).filter(GeneratedContent.case_id == case_id).all()
-    sources = db.query(KnowledgeSource).filter(KnowledgeSource.case_id == case_id).all()
-    modules = db.query(CaseModule).filter(CaseModule.case_id == case_id).all()
-    component_items = db.query(CaseComponentItem).filter(CaseComponentItem.case_id == case_id).all()
-    manifest = {
-        "case": {
-            "id": case.id,
-            "project_id": case.project_id,
-            "title": case.title,
-            "description": case.description,
-            "cavity_type": case.cavity_type,
-            "goal": case.goal,
-            "status": case.status,
-            "visibility": case.visibility,
-            "schema_version": case.schema_version,
-            "tags": case.tags or [],
-            "parameters": case.parameters or {},
-            "symptoms": case.symptoms or [],
-            "measurements": case.measurements or {},
-            "safety_notes": case.safety_notes,
-            "conclusions": case.conclusions,
-            "owner_id": case.owner_id,
-            "created_at": case.created_at,
-            "updated_at": case.updated_at,
-        },
-        "attachments": [
-            {
-                "id": item.id,
-                "filename": item.filename,
-                "file_type": item.file_type,
-                "content_hash": item.content_hash,
-                "uploaded_at": item.uploaded_at,
-            }
-            for item in attachments
-        ],
-        "generated_contents": [
-            {
-                "id": item.id,
-                "content_type": item.content_type,
-                "content": item.content,
-                "model": item.model,
-                "prompt_version": item.prompt_version,
-                "generated_at": item.generated_at,
-            }
-            for item in generated
-        ],
-        "knowledge_sources": [
-            {
-                "id": item.id,
-                "source_type": item.source_type,
-                "title": item.title,
-                "uri": item.uri,
-                "content_hash": item.content_hash,
-                "governance_status": item.governance_status,
-                "version": item.version,
-                "metadata_json": item.metadata_json or {},
-            }
-            for item in sources
-        ],
-        "case_modules": [
-            {
-                "id": item.id,
-                "module_type": item.module_type,
-                "title": item.title,
-                "status": item.status,
-                "config_json": item.config_json or {},
-                "result_json": item.result_json or {},
-                "files": [
-                    {
-                        "id": file.id,
-                        "filename": file.filename,
-                        "file_type": file.file_type,
-                        "file_role": file.file_role,
-                        "content_hash": file.content_hash,
-                        "metadata_json": file.metadata_json or {},
-                        "created_at": file.created_at,
-                    }
-                    for file in item.files
-                ],
-            }
-            for item in modules
-        ],
-        "component_items": [
-            {
-                "id": item.id,
-                "module_id": item.module_id,
-                "category": item.category,
-                "name": item.name,
-                "specification": item.specification,
-                "quantity": item.quantity,
-                "unit": item.unit,
-                "purpose": item.purpose,
-                "required": item.required,
-                "owned": item.owned,
-                "procurement_status": item.procurement_status,
-                "vendor": item.vendor,
-                "part_number": item.part_number,
-                "notes": item.notes,
-                "source": item.source,
-            }
-            for item in component_items
-        ],
-    }
-
+    """Capture one committed case snapshot, including the bytes behind its evidence."""
+    bind = db.get_bind()
     tmp = NamedTemporaryFile(prefix=f"laserclaw-case-{case_id}-", suffix=".zip", delete=False)
     tmp.close()
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=_json_default))
-        for item in generated:
-            bundle.writestr(f"generated/{item.content_type}-{item.id}.json", json.dumps(item.content, ensure_ascii=False, indent=2))
-        for attachment in attachments:
-            if attachment.filepath and os.path.isfile(attachment.filepath):
-                bundle.write(attachment.filepath, arcname=f"attachments/{attachment.filename}")
-        for module in modules:
-            for item in module.files:
-                if item.filepath and os.path.isfile(item.filepath):
-                    bundle.write(item.filepath, arcname=f"modules/{module.id}/{item.file_role}/{item.filename}")
-    record_audit(db, action="case.bundle.export", resource_type="case", resource_id=str(case.id))
-    db.commit()
-    return FileResponse(tmp.name, filename=f"laserclaw-case-{case_id}-bundle.zip", media_type="application/zip")
+    try:
+        case_title = write_case_snapshot(bind, case_id, principal, tmp.name, revision_id)
+        native = request.url.path.endswith("/project-file")
+        title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", case_title).strip(" .")[:100] or "BeamWeft"
+        if re.match(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", title, re.I):
+            title = "_" + title
+        filename = f"{title}.lclaw" if native else f"beamweft-case-{case_id}-bundle.zip"
+        record_audit(db, action="case.file.save" if native else "case.bundle.export", resource_type="case", resource_id=str(case_id))
+        db.commit()
+        return FileResponse(tmp.name, filename=filename, media_type="application/octet-stream" if native else "application/zip",
+                            background=BackgroundTask(os.unlink, tmp.name))
+    except Exception as exc:
+        os.unlink(tmp.name)
+        if isinstance(exc, PackageError):
+            if "text/html" in request.headers.get("accept", ""):
+                return PlainTextResponse(f"案例未能导出\n\n{exc}\n\n关闭此标签页即可回到原案例。", status_code=409)
+            raise HTTPException(409, str(exc)) from exc
+        raise

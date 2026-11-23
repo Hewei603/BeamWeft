@@ -6,11 +6,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from ..attachment_files import OriginalMismatch, case_index_text
 from ..auth.acl import accessible_case_ids, assert_case_view, can_manage_knowledge
 from ..auth.security import Principal, get_current_principal
 from ..config import get_settings
 from ..database import get_db
 from ..knowledge.ingestion import (
+    content_hash,
     extract_text_from_file,
     object_to_text,
     replace_source_chunks,
@@ -121,8 +123,15 @@ async def reindex_source(
     if source.source_type == "case" and source.case_id:
         source = upsert_case_source(db, source.case)
     elif source.attachment is not None:
-        text = extract_text_from_file(source.attachment.filepath, source.attachment.file_type)
-        source.content_hash = source.attachment.content_hash
+        try:
+            text = case_index_text(source.attachment)
+        except OriginalMismatch as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(422, "无法从原件重新提取文字，请检查文件和编码。") from exc
+        if not text.strip():
+            raise HTTPException(422, "未提取到可用文字，已保留原索引。")
+        source.content_hash = content_hash(text)
         source.metadata_json = {**(source.metadata_json or {}), "file_type": source.attachment.file_type, "filepath": source.attachment.filepath}
         replace_source_chunks(db, source, text)
     elif source.generated_content is not None:

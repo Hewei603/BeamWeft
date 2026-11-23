@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -95,28 +95,23 @@ def assert_case_delete(db: Session, case: ExperimentCase, principal: Principal) 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Case delete access denied")
 
 
-def accessible_case_ids(db: Session, principal: Principal) -> list[int] | None:
-    """Return visible case IDs, or None when ACL is intentionally open."""
+def case_visibility(principal: Principal):
+    """SQL restriction shared by case queries. None means unrestricted."""
     if not _acl_enabled(principal) or is_admin(principal):
         return None
     user_id = principal.user_id
     if user_id is None:
-        return []
-    group_ids = _user_group_ids(db, user_id)
-    project_member_query = db.query(ProjectMember.project_id).filter(ProjectMember.user_id == user_id)
-    if group_ids:
-        project_member_query = project_member_query.union(
-            db.query(ProjectMember.project_id).filter(ProjectMember.group_id.in_(group_ids))
-        )
-    project_ids = [row[0] for row in project_member_query.all()]
-    query = db.query(ExperimentCase.id).filter(
-        (ExperimentCase.owner_id == user_id) | (ExperimentCase.visibility == "organization")
+        return false()
+    groups = select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+    projects = select(ProjectMember.project_id).where(
+        or_(ProjectMember.user_id == user_id, ProjectMember.group_id.in_(groups))
     )
-    if project_ids:
-        query = query.union(
-            db.query(ExperimentCase.id).filter(
-                ExperimentCase.visibility == "project",
-                ExperimentCase.project_id.in_(project_ids),
-            )
-        )
-    return [row[0] for row in query.all()]
+    return or_(ExperimentCase.owner_id == user_id, ExperimentCase.visibility == "organization",
+               and_(ExperimentCase.visibility == "project", ExperimentCase.project_id.in_(projects)))
+
+
+def accessible_case_ids(db: Session, principal: Principal) -> list[int] | None:
+    restriction = case_visibility(principal)
+    if restriction is None:
+        return None
+    return list(db.scalars(select(ExperimentCase.id).where(restriction)))

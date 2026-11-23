@@ -1,6 +1,15 @@
 import apiClient from './client';
 
+export const inventoryCategoryLabels = {
+  other:'catOther', mirror:'catMirror', lens:'catLens', window:'catWindow',
+  gain_crystal:'catGain', nonlinear_crystal:'catNonlinear', crystal_other:'catOtherCrystal',
+};
+
 export const inventoryApi = {
+  recognizeLabel: async file => { const data = new FormData(); data.append('file', file); return (await apiClient.post('/api/inventory/recognize-label', data, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 360000 })).data; },
+  createItem: async payload => (await apiClient.post('/api/inventory/items', payload)).data,
+  updateItem: async (itemId, payload) => (await apiClient.patch(`/api/inventory/items/${itemId}`, payload)).data,
+  getItem: async itemId => (await apiClient.get(`/api/inventory/items/${itemId}`)).data,
   importWorkbook: async (file) => {
     const formData = new FormData();
     formData.append('file', file);

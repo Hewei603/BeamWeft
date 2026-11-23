@@ -1,0 +1,22 @@
+.registered-maps {min-width:0;margin:.7rem 0 1.2rem}
+.registered-map-plots {display:grid;grid-template-columns:minmax(0,1fr);gap:.6rem}
+.registered-map-plots.map-triptych {grid-template-columns:repeat(3,minmax(0,1fr))}
+.registered-map-plots figure {min-width:0;margin:0;background:#131d2a;border:1px solid #354a57;border-radius:5px;overflow:hidden}
+.registered-map-plots figcaption {font-weight:600;color:#e0ebed;padding:.75rem .8rem 0}
+.registered-map-plots .oa-plot {height:clamp(245px,35vh,380px)}
+.registered-map-legend {margin:.25rem 1.15rem .75rem;font-size:.8rem;color:#d2dfe5}
+.map-gradient {height:8px;margin:.3rem 0}
+.map-ticks {display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.map-ticks span:only-child {margin:auto}
+.registered-maps p {font-size:.9rem;line-height:1.6;margin:.5rem 0}
+.registered-map-switch {display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.45rem}
+.registered-map-switch button {min-height:34px;padding:.25rem .8rem;color:#d2dfe5;background:#152435;border:1px solid #486373;border-radius:4px;cursor:pointer}
+.registered-map-switch [aria-pressed=true] {border-color:#8ad2c5;background:#25443f;color:#e1faf4}
+.map-probe {font-variant-numeric:tabular-nums}
+.map-probe span {display:inline-block;margin-right:1rem}
+.registered-maps label.map-centers {display:flex;flex-direction:row;align-items:center;gap:.4rem;width:fit-content;font-size:.86rem}
+.registered-maps .map-centers input {margin:0;width:1em;flex:none}
+.map-centers input {accent-color:#79d3c6;width:1em;height:1em}
+.map-actions {display:flex;align-items:center;flex-wrap:wrap;gap:.6rem}
+.map-registration {margin:.65rem 0;padding:.25rem 0}
+.map-registration summary {color:#c4dce4;cursor:pointer}

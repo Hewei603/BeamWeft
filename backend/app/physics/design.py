@@ -2,7 +2,7 @@
 
 The common real case is that a user says "I want 1064 nm out of an 808 nm-pumped
 Nd:YAG" and supplies no mirror radii at all.  Analysing a geometry they never
-chose is useless; what they need is for LaserClaw to *search* for a geometry
+chose is useless; what they need is for BeamWeft to *search* for a geometry
 that works and hand back concrete, buildable numbers.
 
 Robustness is measured, not assumed
@@ -15,20 +15,21 @@ score perfectly and still die under a routine thermal lens (measured: R=400 mm
 pair at L=685 mm scores |m|=0.016 yet goes unstable at f=1000 mm, while the same
 mirrors at L=120 mm survive to f=300 mm).
 
-So robustness is now an actual computation: :func:`thermal_lens_tolerance`
-inserts a thin lens at the gain medium and sweeps its dioptric power until the
-round trip leaves the stability zone.  The reported number is the thermal power
-the design tolerates, which is what a lab actually cares about.
+The thermal margin follows the continuous interval of positive thin-lens powers
+connected to the cold cavity. A later stable interval cannot bridge an intervening
+marginal or unstable setting.
 
 Preferring radii the lab owns is the point of ``candidate_rocs``: a perfect
 design built from mirrors nobody has is worthless.
 """
 from __future__ import annotations
 
+from fractions import Fraction
+from math import isfinite
 from typing import Any
 
 from . import beam as B
-from .toolkit import _FLAT_ROC_MM, _analyze_length
+from .toolkit import _FLAT_ROC_MM, _analyze_length, _cavity_mirror
 
 # Catalogue radii to fall back on when the lab inventory is unknown. These are
 # stock values most optics vendors carry, so a suggestion stays purchasable.
@@ -38,8 +39,7 @@ DEFAULT_CANDIDATE_ROCS: tuple[Any, ...] = (
 
 # Reject absurd spot sizes (mm) that no ordinary half-inch optic supports.
 _MAX_SPOT_MM = 2.0
-# Thermal power (dioptres) at which we stop caring — a design that survives this
-# much lensing is robust for any ordinary CW end-pumped rod.
+# Positive-power horizon used for comparing candidates, in dioptres.
 _DIOPTRE_CEILING = 10.0
 # Reference tolerance for scoring: ~5 D is f = 200 mm, a strong thermal lens.
 _DIOPTRE_REFERENCE = 5.0
@@ -79,7 +79,68 @@ def _round_trip_with_lens(
         lens = [B.thin_lens(f_mm)] if f_mm else []
         forward = half_len + lens + half_len
         backward = half_len + lens + half_len
-    return B.system_matrix(forward + [B.mirror_curved(r2_mm)] + backward + [B.mirror_curved(r1_mm)])
+    return B.system_matrix(forward + [_cavity_mirror(r2_mm)] + backward + [_cavity_mirror(r1_mm)])
+
+
+def thermal_lens_margin(length_mm, r1_mm, r2_mm, crystal, *, ceiling_dioptre=_DIOPTRE_CEILING):
+    """First strict stability boundary reached from a cold, two-mirror resonator.
+
+    In (height, n*angle), let a,b be the reduced propagation lengths to either
+    side of the lens and k=n*P/1000 for positive power P in dioptres. The forward
+    matrix has A=1-bk, B=a+b-abk, C=-k, D=1-ak. Reciprocity and AD-BC=1 give
+    (m+1)/2=(A-B/R1)(D-B/R2) and (m-1)/2=B(C-A/R2-D/R1+B/(R1*R2)).
+    All four factors are linear in k. Their zeros include repeated roots even
+    when the cavity is stable immediately to both sides of the contact.
+    """
+    length = Fraction(str(length_mm))
+    ceiling = Fraction(str(ceiling_dioptre))
+    if length <= 0 or ceiling < 0:
+        raise ValueError("腔长须为正，热光焦度上限须为非负有限值。")
+    n = Fraction(1)
+    a = b = length / 2
+    if crystal:
+        n = Fraction(str(crystal["n"]))
+        thickness = Fraction(str(crystal["thickness_mm"]))
+        front = Fraction(str(crystal["position_mm"])) if "position_mm" in crystal else (length - thickness) / 2
+        back = length - front - thickness
+        if n <= 0 or min(thickness, front, back) < 0:
+            raise ValueError("晶体折射率须为正，厚度和两侧空气长度须为非负值。")
+        a, b = front + thickness / (2*n), back + thickness / (2*n)
+
+    # Decimal input dimensions remain exact in these rational factors, including
+    # a zero coefficient, an exactly marginal cold cavity or a root at the horizon.
+    curvature = []
+    for radius in (r1_mm, r2_mm):
+        if radius == 0:
+            raise ValueError("腔镜曲率半径不能为零。")
+        curvature.append(Fraction(0) if radius >= _FLAT_ROC_MM else 1 / Fraction(str(radius)))
+    u, v = curvature
+    distance = a + b
+    g1 = 1 - distance*u
+    g2 = 1 - distance*v
+    cold = g1*g2
+    limit, critical_m = Fraction(0), None
+    if not 0 < cold < 1:
+        kind = "cold_marginal" if cold in (0, 1) else "cold_unstable"
+        if kind == "cold_marginal":
+            critical_m = 2*int(cold) - 1
+    else:
+        limit, kind = ceiling, "ceiling"
+        factors = [
+            (g1, -b*(1-a*u), -1), (g2, -a*(1-b*v), -1),
+            (distance, -a*b, 1), (-u-v+distance*u*v, -(1-a*u)*(1-b*v), 1),
+        ]
+        for constant, slope, boundary_m in factors:
+            if slope:
+                power = -1000 * constant / (slope*n)
+                if 0 < power <= limit:
+                    limit, kind, critical_m = power, "critical", boundary_m
+    return {
+        "thermal_lens_tolerance_dioptre": float(limit),
+        "thermal_lens_tolerance_min_f_mm": float(1000 / limit) if limit else None,
+        "thermal_lens_limit_kind": kind, "thermal_lens_critical_m": critical_m,
+        "thermal_lens_ceiling_dioptre": float(ceiling),
+    }
 
 
 def thermal_lens_tolerance(
@@ -91,26 +152,15 @@ def thermal_lens_tolerance(
     ceiling_dioptre: float = _DIOPTRE_CEILING,
     step_dioptre: float = 0.1,
 ) -> float:
-    """Thermal lens power (dioptres, 1/m) the cavity tolerates before going unstable.
+    """Upper endpoint of the cold-connected stable range, clipped to the horizon.
 
-    Returns the largest power for which the round trip is still stable; a return
-    equal to ``ceiling_dioptre`` means "tolerant beyond the tested range".
-    A converging thermal lens is the dominant pump-induced perturbation in an
-    end-pumped rod, so this is the practical robustness figure.
+    Retains the original scalar API and step argument. Use thermal_lens_margin
+    to distinguish an excluded physical boundary from an included search limit.
     """
-    tolerated = 0.0
-    power = step_dioptre
-    while power <= ceiling_dioptre + 1e-9:
-        f_mm = 1000.0 / power  # dioptre = 1/m -> focal length in mm
-        try:
-            m = B.stability(_round_trip_with_lens(length_mm, r1_mm, r2_mm, crystal, f_mm))
-        except Exception:  # noqa: BLE001 - a non-physical intermediate ends the sweep
-            break
-        if not m["stable"]:
-            break
-        tolerated = power
-        power += step_dioptre
-    return round(tolerated, 3)
+    if not isfinite(step_dioptre) or step_dioptre <= 0:
+        raise ValueError("热光焦度步长须为正有限值。")
+    return thermal_lens_margin(length_mm, r1_mm, r2_mm, crystal,
+                               ceiling_dioptre=ceiling_dioptre)["thermal_lens_tolerance_dioptre"]
 
 
 def _waist_penalty(w0: float | None, target_waist_mm: float | None) -> tuple[float, dict]:
@@ -194,16 +244,14 @@ def design_linear_cavity(
     shortlist = shortlist[:_SHORTLIST_TOTAL]
 
     for cand in shortlist:
-        tol = thermal_lens_tolerance(
+        margin = thermal_lens_margin(
             cand["length_mm"],
             cand["R1_mm"] if cand["R1_mm"] is not None else _FLAT_ROC_MM,
             cand["R2_mm"] if cand["R2_mm"] is not None else _FLAT_ROC_MM,
             crystal,
         )
-        cand["thermal_lens_tolerance_dioptre"] = tol
-        cand["thermal_lens_tolerance_min_f_mm"] = (
-            None if tol <= 0 else round(1000.0 / tol, 1)
-        )
+        cand.update(margin)
+        tol = margin["thermal_lens_tolerance_dioptre"]
         robustness_penalty = 1.0 - min(tol / _DIOPTRE_REFERENCE, 1.0)
         score = 0.55 * cand["_waist_penalty"] + 0.45 * robustness_penalty
         cand["score"] = round(score, 5)
@@ -243,8 +291,8 @@ def design_linear_cavity(
             "score = 0.55 x 模式尺寸惩罚(" + ("与目标束腰的相对偏差" if target_waist_mm else "束腰适中度")
             + ",软化不饱和) + 0.45 x 热稳健性惩罚(1 - 可承受热透镜/5 D);越小越好。"
             "硬性过滤:冷腔稳定、镜面光斑<=2mm、晶体能放下。"
-            "热稳健性由「在增益介质插入薄透镜并扫描光焦度直至失稳」实测得出,"
-            "不使用 |m| 作为代理(|m| 小同时出现在短臂分支与近共心分支,后者极不耐热透镜)。"
+            "热稳健性按理想薄热透镜的连续正光焦度求解，从冷腔起遇到第一个临界点即止。"
+            "比较上限为 10 D，范围内稳定的候选按该上限评分。"
         ),
         "caveats": caveats,
     }

@@ -35,7 +35,7 @@ def get_ai_provider() -> AIProvider:
         try:
             from .openai import OpenAIProvider
 
-            return OpenAIProvider()
+            return OpenAIProvider(settings=settings)
         except (ImportError, RuntimeError, ValueError) as exc:
             if settings.strict_provider:
                 raise
@@ -79,7 +79,7 @@ def get_ai_provider() -> AIProvider:
         try:
             from .openai import OpenAIProvider
 
-            return OpenAIProvider(api_key=api_key, model=model, base_url=base_url)
+            return OpenAIProvider(api_key=api_key, model=model, base_url=base_url, settings=settings)
         except Exception as exc:  # match the anthropic branch: always fall back
             if settings.strict_provider:
                 raise

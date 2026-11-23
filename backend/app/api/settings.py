@@ -3,10 +3,10 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
 
 from ..agent_settings import (
-    COMPATIBLE_PROVIDERS, MODEL_SUGGESTIONS, PROVIDERS, SETTINGS_LOCK,
+    COMPATIBLE_PROVIDERS, MODEL_SUGGESTIONS, PROVIDERS, REASONING_EFFORTS, SETTINGS_LOCK,
     read_overrides, write_overrides,
 )
 from ..auth.security import Principal, get_current_principal
@@ -25,7 +25,14 @@ class AgentSettingsUpdate(BaseModel):
     base_url: str | None = Field(default=None, max_length=2048)
     executable_path: str | None = Field(default=None, max_length=2048)
     timeout_seconds: int | None = Field(default=None, ge=30, le=1800, strict=True)
-    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max", "ultra"] | None = None
+    reasoning_effort: str | None = None
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def supported_effort(cls, value, info: ValidationInfo):
+        if value is not None and value not in REASONING_EFFORTS.get(info.data.get("provider"), ()):
+            raise ValueError("所选接口不支持这个推理档位，请重新选择。")
+        return value
 
     @field_validator("executable_path")
     @classmethod
@@ -80,6 +87,9 @@ def _snapshot():
             "base_url": (
                 getattr(settings, f"{name}_base_url", None) or "https://api.openai.com/v1"
             ) if name in COMPATIBLE_PROVIDERS else None,
+            **({"reasoning_efforts": REASONING_EFFORTS[name],
+                "reasoning_effort": getattr(settings, f"{name}_reasoning_effort")}
+               if name in REASONING_EFFORTS else {}),
         })
     return {"provider": settings.ai_provider.lower(), "providers": providers, "status": provider_status(),
             "codex_exec": {**codex_status(), "configured_path": settings.codex_exec_path,
@@ -109,8 +119,6 @@ def save_agent_settings(payload: AgentSettingsUpdate, principal: Principal = Dep
                 overrides["codex_exec_path"] = payload.executable_path
             if payload.timeout_seconds is not None:
                 overrides["codex_exec_timeout_seconds"] = payload.timeout_seconds
-            if payload.reasoning_effort is not None:
-                overrides["codex_exec_reasoning_effort"] = payload.reasoning_effort
         elif payload.provider != "mock":
             if not payload.model:
                 raise HTTPException(422, "请填写模型 ID")
@@ -124,6 +132,8 @@ def save_agent_settings(payload: AgentSettingsUpdate, principal: Principal = Dep
             overrides[f"{payload.provider}_model"] = payload.model
             if payload.base_url is not None and payload.provider in COMPATIBLE_PROVIDERS:
                 overrides[f"{payload.provider}_base_url"] = payload.base_url
+        if payload.reasoning_effort is not None:
+            overrides[f"{payload.provider}_reasoning_effort"] = payload.reasoning_effort
         overrides["ai_provider"] = payload.provider
         try:
             write_overrides(settings, overrides)

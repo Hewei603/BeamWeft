@@ -12,12 +12,13 @@ import numpy as np
 
 from ..physics import beam as B
 from ..physics.design import _round_trip_with_lens
-from .solver import _thermal_stability_m, yvo4_index, mirror_radius
+from .solver import _thermal_stability_m, mirror_radius
 
 
 def _point(z, q, n, wavelength, segment):
-    # Suppress floating-point cancellation at an analytically flat wavefront.
-    if abs(q.real) < 64 * np.finfo(float).eps * max(1, abs(q)):
+    # The propagated distance is a difference of axial coordinates. At a waist
+    # its rounding error can exceed the scale of the much smaller local q.
+    if abs(q.real) < 64 * np.finfo(float).eps * max(1, abs(q), abs(z)):
         q = complex(0, q.imag)
     inverse_r = (1 / q).real
     return {"z_mm": float(z), "w_mm": B.w_from_q(q, wavelength, n),
@@ -76,6 +77,36 @@ def _values(design):
     return design.get("resolved_inputs") or {k: f["value"] for k, f in design["facts"].items()}
 
 
+def saved_pump_index(design):
+    resolved = (design.get("resolved_inputs") or {}).get("pump_index")
+    fact = (design.get("facts") or {}).get("pump_index") or {}
+    if resolved is not None:
+        values = [resolved]
+    elif fact.get("value") is not None:
+        values = [fact["value"]]
+    else:
+        # The legacy schema stored this scalar as a labelled assumption.
+        values = [item.get("value") for item in design.get("assumptions", [])
+                  if item.get("key") == "pump_index" or item.get("name") == "泵浦折射率"]
+    indices = {v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)
+               and math.isfinite(v) and v > 0}
+    if len(indices) != 1:
+        raise ValueError("该版设计没有唯一可复核的泵浦波长折射率。请补充该波长的折射率并另存设计后复算。")
+    return indices.pop()
+
+
+def candidate_launch(values, pump):
+    if pump.get("launch_basis") is not None and pump.get("status") != "assumed_beam":
+        return pump.get("launch_radius_mm"), pump.get("launch_half_angle_rad")
+    # Older records used the nominal filled-core model, even if the brief also contained measurements.
+    radius = values["fiber_core_um"] / 2000 if values.get("fiber_core_um") else None
+    na = values.get("fiber_na")
+    if pump.get("status") == "assumed_beam" and pump.get("points"):
+        radius = radius or pump["points"][0].get("w_mm")
+        na = na or pump.get("assumed_na")
+    return radius, na
+
+
 def _model(design, candidate, *, output_gap_mm=None, thermal_f_mm=None, mode="cavity"):
     v = _values(design)
     crystal = candidate["crystal"]
@@ -89,8 +120,8 @@ def _model(design, candidate, *, output_gap_mm=None, thermal_f_mm=None, mode="ca
     cuts = [front, rear, active["z_mm"], active["end_z_mm"]]
     markers = [{"z_mm": 0, "label": "M1", "kind": "mirror"},
                {"z_mm": front, "label": "S1", "kind": "interface"},
-               {"z_mm": active["z_mm"], "label": "Nd 起点", "kind": "active"},
-               {"z_mm": active["end_z_mm"], "label": "Nd 终点", "kind": "active"},
+               {"z_mm": active["z_mm"], "label": "增益段起点", "kind": "active"},
+               {"z_mm": active["end_z_mm"], "label": "增益段终点", "kind": "active"},
                {"z_mm": rear, "label": "S2", "kind": "interface"}]
     common = {"output_gap_mm": gap, "length_mm": length, "crystal": crystal,
               "active_start_mm": active["z_mm"], "active_end_mm": active["end_z_mm"],
@@ -116,28 +147,36 @@ def _model(design, candidate, *, output_gap_mm=None, thermal_f_mm=None, mode="ca
         segments, boundaries = _segments(q, 0, length, cuts, events, wavelength)
     elif mode == "pump":
         pump = candidate["pump"]
+        if pump.get("launch_error"):
+            raise ValueError(pump["launch_error"])
         positions = pump.get("positions", {})
         f1, f2 = pump.get("collimator_f_mm"), pump.get("focus_f_mm")
         if not f1 or not f2 or not all(k in positions for k in ["source", "collimator", "focus_lens"]):
             raise ValueError("此版本尚无完整泵浦几何，请先更新设计。")
         wavelength = v["pump_wavelength_nm"]
-        npump = v.get("pump_index") or yvo4_index(wavelength)
-        radius = v.get("fiber_core_um", 200) / 2000
-        na = v.get("fiber_na", .12)
+        npump = saved_pump_index(design)
+        radius, na = candidate_launch(v, pump)
+        if radius is None or na is None:
+            raise ValueError("计算泵浦包络需要出射尺寸和角分布。可补充测量，或另存明确的源填充假设后试算。")
         effective = math.pi * radius * na * 1e6
-        if effective < wavelength:
-            raise ValueError("给定纤芯与 NA 无法同时作为高斯半径/发散角：小于衍射极限。")
+        if effective / wavelength < 1 - 8 * math.ulp(1.):
+            raise ValueError("给定的束腰半径和发散半角对应 M² 小于 1，请核对口径和单位。")
+        effective = max(effective, wavelength)
+        measured = pump.get("launch_basis") == "measured_second_moment"
+        basis_note = "泵浦出射面为束腰，采用实测二阶矩半径及发散半角。" if measured else "此场景采用名义芯径与 NA 填满的近似。"
         common.update(wavelength_nm=wavelength, effective_wavelength_nm=effective, thermal_f_mm=None,
                       stability=None, round_trip=None, estimated_M2=effective / wavelength,
-                      notes=pump.get("notes", []) + ["泵浦采用等效 M² 的圆对称 q 模型；由名义芯径/NA 得到的场景不等于实测模场。热透镜选择只作用于腔模分析。"])
+                      launch_basis=pump.get("launch_basis") or "filled_fiber",
+                      notes=pump.get("notes", []) + [basis_note + "传播采用等效 M² 的轴对称近轴模型，热透镜选择只作用于腔模分析。"])
         common["markers"] += [{"z_mm": positions[key], "label": label, "kind": "lens" if key != "source" else "source"}
-                              for key, label in [("source", "光纤端"), ("collimator", "准直镜"), ("focus_lens", "聚焦镜")]]
+                              for key, label in [("source", "泵浦出射面"), ("collimator", "准直镜"), ("focus_lens", "聚焦镜")]]
         focus_z = pump.get("focus_z_mm", candidate["active_center_mm"])
         common["markers"] += [{"z_mm": focus_z, "label": "名义焦点", "kind": "focus"}]
         cuts += [0, focus_z]
         events = {positions["collimator"]: [(B.thin_lens(f1), 1)], positions["focus_lens"]: [(B.thin_lens(f2), 1)],
                   front: [(B.interface_flat(1, npump), npump)], rear: [(B.interface_flat(npump, 1), 1)]}
         segments, boundaries = _segments(complex(0, radius / na), positions["source"], rear, cuts, events, effective)
+        common["pump_index"] = npump
     else:
         raise ValueError("未知分析对象")
     common["markers"].sort(key=lambda m: m["z_mm"])

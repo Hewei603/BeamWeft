@@ -56,6 +56,28 @@ def _cell(row: tuple, i: int) -> str:
     return "" if v is None else str(v).strip()
 
 
+def _data_rows(sheet):
+    """Expose vertical Excel merges without mistaking a merged value for a new row."""
+    starts = defaultdict(list)
+    for block in sheet.merged_cells.ranges:
+        if block.min_col == block.max_col and block.max_row > block.min_row:
+            anchor = sheet.cell(block.min_row, block.min_col).value
+            starts[block.min_row + 1].append((block.min_col - 1, block.max_row, anchor))
+    active = {}
+    for row_number, original in enumerate(sheet.iter_rows(values_only=True), 1):
+        for column, end, value in starts.get(row_number, ()):
+            active[column] = (end, value)
+        if active:
+            values = list(original)
+            for column, (end, value) in list(active.items()):
+                values[column] = value
+                if row_number == end:
+                    del active[column]
+            yield original, values
+        else:
+            yield original, original
+
+
 def _to_float(text: str) -> float | None:
     try:
         return float(text)
@@ -198,21 +220,27 @@ def import_workbook(db: Session, path: str | Path, *, source_file: str | None = 
     ws = wb.worksheets[0]
     last_name = ""
     last_size = ""
-    for idx, row in enumerate(ws.iter_rows(values_only=True)):
+    for idx, (original, row) in enumerate(_data_rows(ws)):
         if idx == 0:
             continue
         report.total_rows += 1
-        raw_name = _cell(row, 1)
+        raw_name = _cell(original, 1)
         s1, s2 = _cell(row, 2), _cell(row, 3)
         roc = _cell(row, 5)
         # Test the RAW cells: with forward-fill, `name` is non-empty from the
         # second row on, so an interior blank separator row would otherwise be
         # imported as a phantom duplicate of the previous item.
-        if not any([raw_name, s1, s2, roc, _cell(row, 4), _cell(row, 6)]):
+        if not any(_cell(original, i) for i in (1, 2, 3, 4, 5, 6)):
             report.skipped_empty += 1
+            last_name = last_size = ""
             continue
-        name = raw_name or last_name
-        size = _cell(row, 4) or last_size
+        name = _cell(row, 1) or last_name
+        # Blank sizes continue only within an open name group. Even an identical
+        # explicitly repeated name can denote another piece. Excel merge ranges
+        # separately identify a size deliberately shared by several named pieces.
+        size = _cell(row, 4)
+        if not size and not raw_name and name and name == last_name:
+            size = last_size
         last_name, last_size = name, size
         _build_item(
             db, report,
@@ -226,9 +254,9 @@ def import_workbook(db: Session, path: str | Path, *, source_file: str | None = 
 
     # Sheet 2: crystals (no header row)
     if len(wb.worksheets) > 1:
-        for row in wb.worksheets[1].iter_rows(values_only=True):
+        for original, row in _data_rows(wb.worksheets[1]):
             name = _cell(row, 0)
-            if not name:
+            if not name or not any(_cell(original, i) for i in range(len(original))):
                 report.skipped_empty += 1
                 continue
             report.total_rows += 1
@@ -249,6 +277,25 @@ class InventoryRefreshConflict(ValueError):
     """A workbook edit cannot be matched to recorded physical items safely."""
 
 
+def _mounted_inventory_ids(db, candidates):
+    """Read actual bindings from every project and frozen variant, including superseded revisions."""
+    from ..models import GeneratedContent
+    from ..workbench.assemblies import part_groups
+
+    found = set()
+    if candidates:
+        content = GeneratedContent.content
+        rows = db.query(content[("project", "parts")], content[("project", "incident_paths")]).filter(
+            GeneratedContent.content_type.in_(("optical_project", "optical_snapshot"))
+        ).yield_per(32)
+        for primary, paths in rows:
+            for _, _, parts in part_groups({"parts":primary or [], "incident_paths":paths or []}):
+                found.update(p["inventory_id"] for p in parts if p.get("inventory_id") in candidates)
+            if found == candidates:
+                break
+    return found
+
+
 def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> ImportReport:
     """Refresh parsed fields without replacing item IDs or human history.
 
@@ -261,7 +308,7 @@ def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> Impo
         db.query(InventoryItem)
         .options(selectinload(InventoryItem.loans), selectinload(InventoryItem.coatings))
         .filter(InventoryItem.source_file == source_file)
-        .order_by(InventoryItem.id).all()
+        .order_by(InventoryItem.id).with_for_update().all()
     )
     previous_ids = {item.id for item in previous}
     report = import_workbook(db, path, source_file=source_file)
@@ -278,14 +325,20 @@ def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> Impo
     def logistics(item):
         return (item.location, item.keeper, item.vendor)
 
-    def protected(item):
-        return item.condition_manual is not None or bool(item.loans)
-
     old_groups, new_groups = defaultdict(list), defaultdict(list)
     for item in previous:
         old_groups[identity(item)].append(item)
     for item in incoming:
         new_groups[identity(item)].append(item)
+
+    # A unique exact match retains its ID already. Load historic bindings only
+    # for rows whose absence, edited specs or duplicates could change identity.
+    candidates = {old.id for key, group in old_groups.items()
+                  if len(group) != 1 or len(new_groups.get(key, ())) != 1 for old in group}
+    mounted = _mounted_inventory_ids(db, candidates)
+
+    def protected(item):
+        return item.id in mounted or item.condition_manual is not None or bool(item.loans)
 
     matched_ids, remapped_ids = set(), {}
     excluded = {"id", "created_at", "updated_at", "condition_manual", "condition_note",
@@ -299,7 +352,7 @@ def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> Impo
             if (len(set(old_logistics)) != len(old_logistics)
                     or len(set(new_logistics)) != len(new_logistics)
                     or any(logistics(item) not in new_logistics for item in remaining if protected(item))):
-                raise InventoryRefreshConflict(f"元件「{key[1]}」有重复规格且无法对应人工标记或借用历史，请保留可区分的存放地/保管人后重试。")
+                raise InventoryRefreshConflict(f"元件「{key[1]}」有重复规格，无法确定工程绑定、人工标记或借用历史对应哪一件。请核实实物，并为同规格行保留可区分的存放地或保管人后重试。")
         for fresh in new_items:
             candidates = [item for item in remaining if logistics(item) == logistics(fresh)]
             old = candidates[0] if candidates else (remaining[0] if remaining and not ambiguous else None)
@@ -308,8 +361,17 @@ def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> Impo
             if old is None:
                 continue
             remaining.remove(old)
+            keep = excluded
+            if old.crystal_spec is not None and fresh.crystal_spec is None:
+                # The workbook has no ordered-section field. Its flattened
+                # chemistry and dimensions cannot supersede a curated prescription.
+                keep = excluded | {"crystal_spec", "material", "dimensions", "thickness_mm", "doping_pct"}
+                notes = [n for n in old.parse_notes or [] if not n.startswith("未出现在最新导入清单中")]
+                fresh.parse_notes = list(dict.fromkeys([*(fresh.parse_notes or []), *notes]))
+                if old.parse_confidence == "needs_review" or (old.parse_confidence == "partial" and fresh.parse_confidence == "parsed"):
+                    fresh.parse_confidence = old.parse_confidence
             for column in InventoryItem.__table__.columns:
-                if column.name not in excluded:
+                if column.name not in keep:
                     setattr(old, column.name, getattr(fresh, column.name))
             old.coatings = list(fresh.coatings)
             matched_ids.add(old.id)
@@ -322,11 +384,11 @@ def refresh_workbook(db: Session, path: str | Path, *, source_file: str) -> Impo
             continue
         if protected(old):
             if any(item.name == old.name for item in unmatched_new):
-                raise InventoryRefreshConflict(f"元件「{old.name}」的规格已改变，无法自动对应已有人工标记或借用历史；请核对清单中的名称和规格后重试。")
+                raise InventoryRefreshConflict(f"库存 #{old.id}「{old.name}」已有工程绑定、人工标记或借用历史，同名新行的规格无法确认。请核对实物与原始清单。确认是同一件后，可更正库存记录的原始规格再导入；若是新件，请使用可区分的名称。")
             # Removed rows with history remain inspectable, but cannot be
             # borrowed or recommended as stock that the new workbook omits.
             old.quantity = 0
-            note = "未出现在最新导入清单中，库存置零并保留人工状态和借用历史。"
+            note = "未出现在最新导入清单中，库存置零。原编号、工程绑定及使用历史保留。"
             old.parse_notes = list(dict.fromkeys([*(old.parse_notes or []), note]))
         else:
             db.delete(old)

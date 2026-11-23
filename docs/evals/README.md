@@ -1,6 +1,6 @@
 # RAG Eval Datasets
 
-LaserClaw uses JSONL datasets for retrieval quality and abstention checks.
+BeamWeft uses JSONL datasets for retrieval quality and abstention checks.
 
 ## Public Example
 

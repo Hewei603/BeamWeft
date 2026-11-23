@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a LaserClaw improvement
+about: Propose a BeamWeft improvement
 title: "[Feature]: "
 labels: enhancement
 assignees: ""

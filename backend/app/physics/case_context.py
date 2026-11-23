@@ -164,6 +164,21 @@ def compute_case_physics(
             skipped.append(f"{tool_name}: {type(exc).__name__}")
             return {"status": "failed"}
 
+    # An explicitly saved optical project is more current and expressive than
+    # the old R1/R2/L/one-slab adapter. Never silently drop its crystal sections
+    # or fall back to an all-air search if that project is invalid.
+    has_current_project = "current_optical_system" in params
+    if has_current_project:
+        from ..workbench.optics import analyze_system
+        current = _safe("current_optical_project", analyze_system, params.get("current_optical_system"))
+        if current.get("status") == "completed":
+            current["project_revision_id"] = params.get("current_optical_project_revision_id")
+            current["scope"] += list(params.get("current_optical_scope_warnings") or [])
+            results["current_optical_project"] = current
+            tools.append("current_optical_project")
+        else:
+            skipped.append("当前光学工程不能计算，已保留失败信息；没有回退到旧晶体或全空气腔模型。")
+
     # Search only when the case gives at least one physical hint. With truly
     # empty parameters we must not invent an operating wavelength.
     # A geometry is wavelength-dependent (w ~ sqrt(lambda)), so never design
@@ -176,8 +191,8 @@ def compute_case_physics(
                   "shg_crystal", "gain_medium")
     )
 
-    cavity_cfg = _cavity_config(params)
-    if cavity_cfg is None and has_hint:
+    cavity_cfg = None if has_current_project else _cavity_config(params)
+    if not has_current_project and cavity_cfg is None and has_hint:
         # The user gave no mirrors at all — the usual real case. Don't give up
         # and don't let the model guess: SEARCH for a workable geometry, using
         # radii the lab actually owns when we know them.
@@ -191,7 +206,7 @@ def compute_case_physics(
         if search.get("status") == "completed" and search.get("candidates"):
             best = search["candidates"][0]
             results["cavity_design_search"] = {
-                "note": "案例未给定腔镜,以下几何由 LaserClaw 搜索得出(非用户输入)",
+                "note": "案例未给定腔镜,以下几何由 BeamWeft 搜索得出(非用户输入)",
                 "wavelength_nm": wl,
                 "recommended": {
                     "R1": best["R1_label"], "R2": best["R2_label"],
@@ -203,6 +218,9 @@ def compute_case_physics(
                     "stability_m": best["stability_m"],
                     "thermal_lens_tolerance_dioptre": best.get("thermal_lens_tolerance_dioptre"),
                     "thermal_lens_tolerance_min_f_mm": best.get("thermal_lens_tolerance_min_f_mm"),
+                    "thermal_lens_limit_kind": best.get("thermal_lens_limit_kind"),
+                    "thermal_lens_critical_m": best.get("thermal_lens_critical_m"),
+                    "thermal_lens_ceiling_dioptre": best.get("thermal_lens_ceiling_dioptre"),
                     "score_breakdown": best.get("score_breakdown"),
                     "element_placement": _placement_from(best),
                     "beam_envelope": _safe("beam_envelope", lambda c: _envelope_from(c, wl), best),
@@ -230,6 +248,7 @@ def compute_case_physics(
                 "spot_on_mirror2_mm": rec.get("w_on_mirror2_mm"),
                 "spot_in_crystal_mm": rec.get("w_in_crystal_mm"),
                 "stability_m": rec.get("stability_m"),
+                **{key: value for key, value in rec.items() if key.startswith("thermal_lens_")},
                 "element_placement": out.get("placement"),
                 "beam_envelope": out.get("beam_envelope"),
             }
@@ -266,7 +285,7 @@ def compute_case_physics(
         "skipped": skipped,
         "results": results,
         "note": (
-            "These values were computed by LaserClaw's deterministic physics kernel "
+            "These values were computed by BeamWeft's deterministic physics kernel "
             "(ABCD/Gaussian, Sellmeier phase matching, thin-film TMM) for "
             f"{lasing_nm if lasing_nm else 'the stated'} nm. Use them as-is in the "
             "generated content, state the wavelength they belong to, and do not "

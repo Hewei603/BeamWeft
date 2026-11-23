@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { inventoryApi } from '../api/inventory';
+import { inventoryApi, inventoryCategoryLabels } from '../api/inventory';
 import { useLanguage } from '../LanguageContext';
+import ComponentEditor, { crystalDescription } from '../components/ComponentEditor';
+import ReturnLoanDialog from '../components/ReturnLoanDialog';
 
 function coatingChip(coating) {
   const range = coating.wl_min_nm === coating.wl_max_nm
@@ -33,6 +35,18 @@ function InventoryPage() {
   const [matching, setMatching] = useState(false);
   const [sources, setSources] = useState([]);
   const [loans, setLoans] = useState([]);
+  const [loansError, setLoansError] = useState(''), [loadingLoans, setLoadingLoans] = useState(true);
+  const [returningLoan, setReturningLoan] = useState(null);
+  const [editorItem, setEditorItem] = useState(undefined);
+  const [savedNotice, setSavedNotice] = useState('');
+
+  const savedComponent = async item => {
+    setEditorItem(undefined);
+    setSavedNotice(`已保存到元件库 · #${item.id} ${item.name}`);
+    const emptyFilters = { category: '', wavelengthNm: '', functionName: '' };
+    setFilters(emptyFilters); setShowReview(false); setNameQuery(item.name);
+    await Promise.all([loadItems(emptyFilters, false), loadSources()]);
+  };
 
   useEffect(() => { loadItems(); loadSources(); loadLoans(); }, []);
 
@@ -45,11 +59,12 @@ function InventoryPage() {
   };
 
   const loadLoans = async () => {
+    setLoadingLoans(true);
     try {
       setLoans(await inventoryApi.listLoans({ openOnly: true }));
-    } catch {
-      setLoans([]);
-    }
+      setLoansError('');
+    } catch (cause) { setLoansError(`借用记录读取失败，当前借用状态未知：${cause.message}`); }
+    finally { setLoadingLoans(false); }
   };
 
   // Who currently holds each item, so the row can offer the right action.
@@ -63,7 +78,8 @@ function InventoryPage() {
   const handleBorrow = async (item) => {
     const borrower = window.prompt(t('inventoryPage.borrowWho'));
     if (!borrower || !borrower.trim()) return;
-    const purpose = window.prompt(t('inventoryPage.borrowPurpose')) || undefined;
+    const purpose = window.prompt(t('inventoryPage.borrowPurpose'));
+    if (purpose === null) return;
     try {
       await inventoryApi.borrow(item.id, { borrower_name: borrower.trim(), quantity: 1, purpose });
       await refresh();
@@ -72,20 +88,10 @@ function InventoryPage() {
     }
   };
 
-  const handleReturn = async (loan) => {
-    if (!window.confirm(t('inventoryPage.confirmReturn').replace('{who}', loan.borrower_name))) return;
-    // Returning is when damage is actually discovered, so ask once rather than
-    // making the student find a separate "mark damaged" action afterwards.
-    const broken = window.confirm(t('inventoryPage.askDamagedOnReturn'));
-    const note = broken ? (window.prompt(t('inventoryPage.damageNote')) || undefined) : undefined;
-    try {
-      await inventoryApi.returnLoan(loan.id, {
-        note, condition_on_return: broken ? 'damaged' : undefined,
-      });
-      await refresh();
-    } catch (err) {
-      setError(t('inventoryPage.returnFailed') + err.message);
-    }
+  const handleReturn = async (loan, payload) => {
+    await inventoryApi.returnLoan(loan.id, payload);
+    setReturningLoan(null); setSavedNotice(`借用记录 #${loan.id} 已归还，历史记录已保留。`);
+    await refresh();
   };
 
   const handleMarkCondition = async (item) => {
@@ -236,9 +242,14 @@ function InventoryPage() {
           <h1>{t('inventoryPage.title')}</h1>
           <p className="muted">{t('inventoryPage.subtitle')}</p>
         </div>
+        <button className="btn btn-primary" onClick={() => { setEditorItem(null); setSavedNotice(''); }}>＋ 新增元件</button>
       </div>
 
       {error && <div className="error">{error}</div>}
+      {loansError && <div className="error" role="alert">{loansError}<button className="btn btn-secondary" onClick={loadLoans}>重试读取借用记录</button></div>}
+      {returningLoan && <ReturnLoanDialog loan={returningLoan} onReturn={handleReturn} onClose={() => setReturningLoan(null)} />}
+      {savedNotice && <p className="component-success" role="status">{savedNotice}</p>}
+      {editorItem !== undefined && <ComponentEditor key={editorItem?.id || 'new'} item={editorItem} onSaved={savedComponent} onCancel={() => setEditorItem(undefined)} />}
 
       <div className="grid-2">
         <div className="card">
@@ -400,10 +411,7 @@ function InventoryPage() {
             {t('inventoryPage.category')}
             <select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}>
               <option value="">{t('inventoryPage.anyCategory')}</option>
-              <option value="mirror">{t('inventoryPage.catMirror')}</option>
-              <option value="lens">{t('inventoryPage.catLens')}</option>
-              <option value="gain_crystal">{t('inventoryPage.catGain')}</option>
-              <option value="nonlinear_crystal">{t('inventoryPage.catNonlinear')}</option>
+              {Object.entries(inventoryCategoryLabels).map(([key,label]) => <option key={key} value={key}>{t('inventoryPage.'+label)}</option>)}
             </select>
           </label>
           <label>
@@ -454,6 +462,8 @@ function InventoryPage() {
               {items.filter((i) => i.name.toLowerCase().includes(nameQuery.trim().toLowerCase())).map((item) => (
                 <tr key={item.id} className={item.parse_confidence !== 'parsed' ? 'row-review' : ''}>
                   <td className="name-cell"><strong>{item.name}</strong>
+                    {item.crystal_spec && <p className="component-inventory-summary">{crystalDescription(item)}<br />端面：{item.crystal_spec.coating_note || '待核实'}</p>}
+                    {Object.hasOwn(inventoryCategoryLabels,item.category) && <button className="btn btn-secondary btn-tiny" onClick={() => { setEditorItem(item); setSavedNotice(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>编辑参数</button>}
                     {(item.effective_condition || item.condition) !== 'ok' && (
                       <span className="meta-pill">{te(item.effective_condition || item.condition)}</span>
                     )}
@@ -481,7 +491,7 @@ function InventoryPage() {
                       <span key={loan.id} className="loan-line">
                         <span className="meta-pill">{loan.borrower_name} ×{loan.quantity}</span>
                         <button className="btn btn-secondary btn-tiny"
-                          onClick={() => handleReturn(loan)}>
+                          disabled={loadingLoans || Boolean(loansError)} onClick={() => setReturningLoan(loan)}>
                           {t('inventoryPage.returnBtn')}
                         </button>
                       </span>
@@ -489,7 +499,7 @@ function InventoryPage() {
                     {(item.available_qty == null || item.available_qty > 0)
                       && (item.effective_condition || item.condition) !== 'damaged' && (
                       <button className="btn btn-secondary btn-tiny"
-                        onClick={() => handleBorrow(item)}>
+                        disabled={loadingLoans || Boolean(loansError)} onClick={() => handleBorrow(item)}>
                         {t('inventoryPage.borrowBtn')}
                       </button>
                     )}

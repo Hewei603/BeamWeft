@@ -1,6 +1,6 @@
 """UV third-harmonic (355 nm) case study against a REAL lab inventory.
 
-Walks the full LaserClaw workflow for an 808 pump -> Nd:YAG 1064 -> SHG 532 ->
+Walks the full BeamWeft workflow for an 808 pump -> Nd:YAG 1064 -> SHG 532 ->
 SFG 355 system, constrained by the lab's actual component inventory (an xlsx
 with semi-structured coating strings):
 

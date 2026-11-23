@@ -1,6 +1,6 @@
 # Security Policy
 
-LaserClaw handles experiment metadata, uploaded documents, generated artifacts, and retrieval traces. Treat deployments as sensitive unless all data is synthetic.
+BeamWeft handles experiment metadata, uploaded documents, generated artifacts, and retrieval traces. Treat deployments as sensitive unless all data is synthetic.
 
 ## Supported Versions
 
@@ -25,4 +25,4 @@ Do not open a public issue for a suspected vulnerability. Contact the maintainer
 
 ## Known Limitations
 
-LaserClaw is an advisory knowledge workspace. It does not operate laser hardware and must not be used as an automated safety controller. AI-generated outputs require qualified human review and applicable SOP approval.
+BeamWeft is an optical simulation workbench. It does not operate laser hardware and must not be used as an automated safety controller. AI-generated outputs require qualified human review and applicable SOP approval.

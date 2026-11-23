@@ -1,6 +1,6 @@
-# Contributing to LaserClaw
+# Contributing to BeamWeft
 
-LaserClaw is a local-first RAG Agent workspace for laser experiment knowledge workflows. Contributions should preserve the core guarantees: auditable retrieval, citation-ready outputs, project-level access control, and deterministic local testing.
+BeamWeft is a local-first optical simulation workbench. Researchers and the Agent edit the same projects and use the same physics tools. Contributions should preserve the core guarantees: auditable retrieval, citation-ready outputs, project-level access control, and deterministic local testing.
 
 ## Development Setup
 

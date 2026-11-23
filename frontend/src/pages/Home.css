@@ -1,0 +1,65 @@
+.main-content:has(.home-page) { max-width:none; padding:0; }
+.home-page {
+  --home-inset:max(clamp(1.25rem,5.7vw,6rem),calc((100% - 82rem) / 2));
+  background:#081118; color:#e7f0f2;
+}
+.home-cover {
+  isolation:isolate; position:relative; display:flex; align-items:center;
+  min-height:clamp(24rem,54vh,37rem); padding:clamp(2.5rem,5.3vw,4.8rem) var(--home-inset);
+  background:#070f14; border-bottom:1px solid #26363c;
+}
+.home-optics, .home-optics img { position:absolute; display:block; inset:0; width:100%; height:100%; }
+.home-optics { overflow:hidden; z-index:-1; }
+.home-optics img { object-fit:cover; object-position:66% 52%; }
+.home-optics::after { content:''; position:absolute; inset:0; background:linear-gradient(90deg,#071016fa 0%,#071016eb 18%,#0710165c 43%,transparent 63%),linear-gradient(0deg,#09121975,transparent 25%); }
+.home-intro { max-width:36rem; }
+.home-intro h1 {
+  font-family:'Inter','Segoe UI','Microsoft YaHei',sans-serif; font-size:clamp(3rem,4.9vw,5.25rem);
+  line-height:1.08; font-weight:650; letter-spacing:-.045em; color:#eff7f8; margin:0;
+}
+.home-intro h1 span { color:#a8e1d7; }
+.home-intro p { max-width:32ch; margin:1.25rem 0 1.75rem; color:#bccdd1; line-height:1.7; font-size:1rem; }
+.home-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.65rem; }
+.home-actions a,.home-actions button {
+  display:inline-flex; gap:.7rem; align-items:center; justify-content:center; min-height:44px;
+  padding:.55rem 1rem; border-radius:.55rem; text-decoration:none; font-family:inherit; font-size:.94rem; line-height:1.4;
+}
+.home-actions .home-create { background:#b5ecdb; border:1px solid #c9f6e7; color:#092820; font-weight:650; }
+.home-create span { font-size:1.2rem; }
+.home-projects,.home-actions .btn { color:#e0ecec; border:1px solid #50626b; background:#122028e8; }
+.home-actions a:hover,.home-actions button:hover { background:#223840; text-decoration:none; color:white; }
+.home-actions .home-create:hover { background:#d2f7e9; color:#092820; }
+.home-library {
+  display:grid; grid-template-columns:minmax(0,1.65fr) minmax(15rem,1fr); gap:clamp(2rem,7.4vw,8rem);
+  padding:clamp(1.7rem,3.2vw,3rem) var(--home-inset);
+}
+.home-library h2 { font-size:1.14rem; line-height:1.5; letter-spacing:-.015em; margin-bottom:.85rem; color:#edf5f6; }
+.home-recent,.home-lab-links { display:grid; }
+.home-recent a,.home-lab-links a {
+  border-top:1px solid #2a3941; min-height:46px; gap:.85rem; padding:.65rem .1rem;
+  color:#c3d5d9; display:flex; align-items:center; text-decoration:none; overflow-wrap:anywhere;
+}
+.home-recent a:hover,.home-lab-links a:hover { color:#bdf3df; border-color:#638a86; }
+.home-recent small { margin-inline-start:auto; color:#9db4bb; font-size:.76rem; white-space:nowrap; }
+.home-recent b,.home-lab-links span { color:#96b5b7; font-weight:400; }
+.home-lab-links span { margin-inline-start:auto; }
+.home-file-icon { width:.84rem; height:1rem; border:1px solid #79aaa7; border-radius:2px; flex:none;
+  background:linear-gradient(#79aaa7,#79aaa7) 50% 63% / 45% 1px no-repeat; }
+.home-empty { color:#9fb3bd; border-top:1px solid #2a3941; line-height:1.6; padding:1rem 0; }
+.home-config { padding:0 var(--home-inset) 3.5rem; }
+.home-config .agent-settings { background:#101b23; border:1px solid #2b3c45; border-radius:.8rem; }
+@media (prefers-reduced-motion:no-preference) {
+  .home-optics img { animation:optics-reveal .88s cubic-bezier(.2,.65,.3,1) both; }
+  @keyframes optics-reveal { from {transform:scale(1.025);opacity:.55} to {transform:scale(1);opacity:1} }
+  .home-actions a,.home-actions button { transition:background .15s,color .15s,transform .15s; }
+  .home-actions :is(a,button):active { transform:translateY(1px); }
+}
+@media (max-width:650px) {
+  .home-cover { align-items:flex-end; min-height:29rem; padding-top:10.25rem; padding-bottom:1.65rem; }
+  .home-optics { inset:0 0 auto; height:58%; }
+  .home-optics img { object-position:65% 43%; }
+  .home-optics::after { background:linear-gradient(0deg,#070f14 1%,transparent 55%); }
+  .home-intro h1 { font-size:clamp(2.65rem,10.8vw,3.8rem); }
+  .home-intro p { margin:.8rem 0 1.05rem; }
+  .home-library { grid-template-columns:minmax(0,1fr); gap:1.5rem; }
+}

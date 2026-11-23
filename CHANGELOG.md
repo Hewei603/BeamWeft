@@ -1,6 +1,39 @@
 # Changelog
 
+## 1.9.0 — 2026-11-22
+
+LaserClaw is now **BeamWeft**. The Windows launcher is `Launch-BeamWeft.bat`. Existing shortcuts, `.lclaw` projects, laboratory data directories and study-provider identifiers remain compatible.
+
+- Continue editing an Agent-built optical layout directly on the canvas. A project with one saved alternative and no main revision opens that design. Projects with parallel alternatives offer a choice. Archived replies open the exact revision used at the time, and a new Agent question can use the experimenter's unsaved canvas.
+
+- Case originals retain their identities across deletion, import and concurrent uploads. Researchers can verify the bytes behind a result, restore a matching backup in place, and resume interrupted folder uploads. Agent reports link unsuccessful readings to their diagnostic records.
+
+- The API accepts `X-BeamWeft-API-Key` and the original header for existing clients.
+- The optical editor supports undo and redo across saves on the current branch. An entire pointer gesture or focused parameter edit is reversible in one step. Adopting a trial or replacing a stock component preserves subsequent local edits, including when the server responds after the user has left the workbench.
+- Manual and Agent workflows can propagate registered incoherent source bounds or weighted rays through single-pass layouts. Ray tables retain their original columns, incident radiant power and row correspondence. Spatial and angular acceptance can be evaluated together at a receiver. Owned lenses with unknown glass keep their focal length unresolved, and a missing fiber core size or NA no longer silently supplies a beam envelope.
+- Users and the Agent can compare camera measurements with saved predictions or other acquisitions on calibrated coordinates. The comparison integrates the reference over detector cells and reports common coverage, centroid shifts and signed residuals. Camera extraction preserves instrument codes and the original sensor axes.
+- A stored optical project can supply the path from a known source to a named observation plane even when a later component lacks data. The bench and Agent use the same local prescription. Comparing candidates retains the full experimental layout and identifies changes in where a parameter or reference plane comes from.
+- Reopening an interrupted task shows its saved tool calls and identifies the source of any final answer. Local processes sharing a database can check whether the original executor still owns a task before marking it interrupted.
+
+- Users and the Agent can continue a paraxial beam from an interior material plane through homogeneous media and coaxial refracting surfaces. A measured caustic can supply one registered transverse axis.
+- Scalar Fresnel propagation v2 publishes the field after an aperture, including its transverse phase and cumulative clipping losses. A new calculation can reuse a compatible historical method's frozen inputs and cite the original run.
+- Complex results load individual published quantities on demand. Simple structured plugin parameters can be edited with ordinary form controls. Missing material indices now appear as unknown throughout the project overview.
+
+## 1.8.0 — 2026-11-03 maintenance baseline
+
+The owner reserved 2.0 for a later third review and major optimization. The runtime and package identifiers at this maintenance baseline were 1.8.0. Earlier 2.0/v3.x development records remain available.
+
+- Preserve the latest generic component editing/replacement, experiment context, project revision and saved analysis workflows. Add the general-purpose product constraint to project guidance.
+- Preserve signed mirror curvature; reject malformed/non-finite measurement rows with line numbers; normalize explicitly configured coating percentages and power units; reject nonphysical passive-loss fits as inapplicable.
+- Require a reviewer/admin to clear an existing damage state, including during return. Returning without changing condition preserves that state.
+- Preserve composer and project drafts across case/workbench tabs; append contextual prompts without overwriting text or mixing project versions. Warn before closing a page with edited text/model data.
+- Keep successful saves/replacements visible when a subsequent read fails. Isolate optional case-resource failures, expose project retry, and distinguish unknown inventory loan state from an empty list.
+- Add an explicit return dialog, direct evidence navigation, keyboard-accessible workbench upload, graph reload retry, responsive navigation, consistent case fields and higher-contrast primary controls.
+- Validate 643 backend tests (2 PostgreSQL tests skipped), 3 frontend draft-contract tests, ESLint, production build and isolated browser workflows. The browser Agent provider is scripted; numerical kernels are real. See `docs/releases/1.8.0/README.md` for limitations and the updated audit mapping.
+
 ## 2.0.0 — LaserClaw 2.0
+
+Historical development label, superseded by the current 1.8.0 maintenance baseline; retained without rewriting its original evidence.
 
 The release consolidates the task-led Agent, editable optical engineering, Codex subscription transport, scientific visualization and daily-workflow repairs. Backend, frontend handshake and frontend package versions are 2.0.0. Earlier v3.x labels below describe unpublished development milestones, not released Git tags.
 

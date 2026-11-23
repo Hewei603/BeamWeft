@@ -1,5 +1,6 @@
 from io import BytesIO
 
+from PIL import Image
 from app.config import get_settings
 from app.knowledge.retrieval import _confidence
 
@@ -75,10 +76,11 @@ def test_attachment_upload_indexes_text(client):
 
 def test_image_upload_can_be_analyzed(client):
     case_id = _create_case(client)
-
+    beam = BytesIO()
+    Image.new("L", (8, 8), 128).save(beam, format="PNG")
     upload = client.post(
         f"/api/cases/{case_id}/attachments",
-        files={"file": ("beam.png", BytesIO(b"fake-png-bytes"), "image/png")},
+        files={"file": ("beam.png", beam.getvalue(), "image/png")},
     )
     assert upload.status_code == 201
 

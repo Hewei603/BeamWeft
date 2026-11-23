@@ -3,6 +3,14 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
 
+class ModelTurnError(RuntimeError):
+    """A locally worded diagnostic for an incomplete or unusable model turn."""
+
+    def __init__(self, message, *, refused=False):
+        super().__init__(message)
+        self.refused = refused
+
+
 class AIProvider(ABC):
     """Abstract AI provider."""
 

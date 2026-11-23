@@ -71,12 +71,18 @@ def fit_power_curve(pump: list[float], output: list[float]) -> dict:
     o = np.asarray(output, dtype=float)
     if p.size != o.size or p.size < 3:
         return {"status": "failed", "message": "需要至少 3 个 (泵浦, 输出) 数据点"}
+    if p.ndim != 1 or o.ndim != 1 or not np.all(np.isfinite(p)) or not np.all(np.isfinite(o)):
+        return {"status": "failed", "message": "功率数据必须为成对的一维有限数值，不能包含 NaN 或 Infinity。"}
+    if len(np.unique(p)) < 3:
+        return {"status": "failed", "message": "需要至少 3 个不同的泵浦功率，不能对相同横坐标拟合阈值。"}
     order = np.argsort(p)
     p, o = p[order], o[order]
 
     best = None  # (total_sse, a, b, r2, split)
     for split in range(0, p.size - 2):
         xs, ys = p[split:], o[split:]
+        if len(np.unique(xs)) < 3:
+            continue
         a, b, r2 = _linear_fit(xs, ys)
         if a <= 0:
             continue
@@ -169,6 +175,8 @@ def findlay_clay(series: list[dict]) -> dict | None:
         "n_points": len(pts),
         "assumptions": "小损耗近似 (-ln R ≈ T);各曲线除输出镜外腔况一致",
     }
+    if loss < -1e-12:
+        result.update(applicable=False, note="拟合得到负被动损耗，模型不适用；请核对单位、测量条件及输出镜透过率。保留拟合值供诊断，未钳制为零。")
     if len(pts) < 3:
         result["warning"] = "仅 2 组输出镜数据:直线必然完美穿过两点,R²=1 不代表模型成立,建议再测一组"
     return result
@@ -202,6 +210,8 @@ def caird(series: list[dict]) -> dict | None:
         "n_points": len(pts),
         "assumptions": "1/η = (1/η0)(1 + L/T);各曲线泵浦/模式匹配一致",
     }
+    if b1 / b0 < -1e-12 or 1.0 / b0 > 1.0 + 1e-12:
+        result.update(applicable=False, note="拟合得到负被动损耗或超过100%的本征斜率效率，模型不适用；请核对单位和测量条件。保留原拟合值供诊断。")
     if len(pts) < 3:
         result["warning"] = "仅 2 组输出镜数据:直线必然完美穿过两点,R²=1 不代表模型成立,建议再测一组"
     return result

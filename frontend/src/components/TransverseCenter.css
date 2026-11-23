@@ -1,0 +1,27 @@
+.station-center { flex: 1 1 100%; min-width: 0; color: #c7d9df; }
+.station-center > summary { width: fit-content; cursor: pointer; }
+.center-content { max-width: 50rem; margin: .55rem 0; padding: .7rem; border: 1px solid #344954; border-radius: .45rem; }
+.center-content p, .center-result p { margin: .35rem 0; overflow-wrap: anywhere; }
+.center-content button:not(.btn) { padding: .28rem .55rem; border: 1px solid #435e6b; background: #192b35; border-radius: .35rem; color: #c9e7ef; cursor: pointer; }
+.center-content button:disabled { opacity: .55; cursor: default; }
+.center-links { display: flex; flex-wrap: wrap; gap: .4rem; margin: .35rem 0; }
+.center-form fieldset { display: grid; gap: .45rem; margin: .55rem 0; padding: 0; border: 0; min-width: 0; }
+.bench-probe .center-content label { display: grid; gap: .2rem; align-content: start; min-width: 0; }
+.bench-probe .center-content select, .center-content input, .center-content textarea { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.center-form button { justify-self: start; }
+.center-transform { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%,12rem),1fr)); gap: .5rem; border-left: 2px solid #456470; padding-left: .6rem; margin: .35rem 0; }
+.center-transform p, .center-transform label:last-child { grid-column: 1/-1; }
+.center-history:has(.center-result) { margin-top: .9rem; padding-top: .65rem; border-top: 1px solid #3b535e; }
+.center-result { min-width: 0; color: #cfdee4; }
+.center-result h5 { font-size: 1rem; margin: .55rem 0 .3rem; }
+.center-readout { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1.15rem; }
+.center-readout table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.center-readout caption { padding: .4rem 0; text-align: left; }
+.center-readout td, .center-readout th { padding: .32rem .45rem; border-bottom: 1px solid #3b505b; text-align: right; }
+.center-plot { width: min(100%, 11rem); margin: .45rem 0; font-size: .75rem; }
+.center-plot svg { width: 100%; background: #15242e; border: 1px solid #334953; border-radius: .35rem; }
+.center-plot text { fill: #bbcdd4; font: 10px sans-serif; }
+.center-axis { fill: none; stroke: #55717d; }
+.center-vector { stroke: #cddde4; stroke-dasharray: 3 3; }
+.center-observed { fill: none; stroke: #f1b980; stroke-width: 2; }
+.center-reference { stroke: #81dbd0; stroke-width: 2; }

@@ -4,9 +4,11 @@ import { casesApi } from '../api/cases';
 import { designApi } from '../api/design';
 import './DesignWorkspace.css';
 import OpticalAnalysis from './OpticalAnalysis';
+import DesignBasis from './DesignBasis';
 
 const fmt = (value, digits = 2) => value == null ? '待补参数' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: digits });
 const mirrorText = r => r == null ? '平面' : `凹面 R${fmt(r, 0)} mm`;
+const sourceLabels = {image_reading:'图片读取 · 请核对',file_quote:'原件摘录',user_constraint:'手工指定', user_stated:'用户陈述'};
 const valueText = fact => `${Array.isArray(fact.value) ? fact.value.join(' / ') : ({ fiber: '光纤输出', linear: '直线腔', true: '是', false: '否' }[String(fact.value)] || fact.value)} ${fact.unit || ''}`;
 
 function Layout({ candidate }) {
@@ -17,11 +19,15 @@ function Layout({ candidate }) {
   </React.Fragment>)}</div>;
 }
 
-function Constraints({ facts, inventory, patch, onChange, disabled }) {
+function Constraints({ facts, inventory, patch, onChange, disabled, policy, onPolicyChange }) {
   const val = key => Object.hasOwn(patch, key) ? patch[key] ?? '' : facts?.[key]?.value ?? '';
   const update = (key, value) => onChange(prev => ({ ...prev, [key]: value }));
   return <details className="design-constraints"><summary>已有元件 / 固定位置 / 设计约束{Object.keys(patch).length ? ' · 有待计算修改' : ''}</summary>
-    <p>已装好的器件可锁定。留空表示交给求解器；坐标统一相对 M1 镀膜面，泵浦侧为负值。</p>
+    <label>缺少参数时<select value={policy} onChange={e => onPolicyChange(e.target.value)} disabled={disabled}>
+      <option value="evidence_only">保留未知值，计算已有数据支持的结果</option>
+      <option value="exploratory">允许用明确标出的设计假设比较方案</option>
+    </select></label>
+    <p>可锁定已装好的器件。坐标相对 M1 镀膜面，泵浦侧为负值。</p>
     {[['collimator', '准直镜', 'lens'], ['focus_lens', '聚焦镜', 'lens'], ['crystal', '增益晶体', 'gain_crystal'], ['M1', '输入镜 M1', 'mirror'], ['M2', '输出镜 M2', 'mirror']].map(([role, label, category]) => <label key={role}>{label} · 库存绑定<select aria-label={`${label}库存绑定`} disabled={disabled} value={val(`${role}_inventory_id`)} onChange={e => update(`${role}_inventory_id`, e.target.value ? Number(e.target.value) : null)}><option value="">自动选型 / 使用对话中的已有器件</option>{inventory.filter(i => i.category === category).map(i => <option key={i.id} value={i.id} disabled={i.condition === 'damaged' || i.available_quantity < 1}>#{i.id} {i.name} · 可用 {i.available_quantity}</option>)}</select></label>)}
     {!inventory.length && <small>元件库当前为空；已有器件可直接在对话中描述。<Link to="/inventory">导入元件库 →</Link></small>}
     <div className="design-constraint-grid">{[
@@ -31,8 +37,8 @@ function Constraints({ facts, inventory, patch, onChange, disabled }) {
       ['collimator_f_mm', '准直镜实测 f / mm'], ['focus_f_mm', '聚焦镜 f / mm'],
       ['focus_lens_z_mm', '固定聚焦镜 z / mm'], ['collimator_z_mm', '固定准直镜 z / mm'], ['source_z_mm', '固定光纤端 z / mm'],
       ['min_output_gap_mm', 'M2 最小间隙 / mm'], ['max_output_gap_mm', 'M2 最大间隙 / mm'],
-    ].map(([key, label]) => <label key={key}>{label}<input type="number" step="any" aria-label={label} disabled={disabled} placeholder="由求解器设计" value={val(key)} onChange={e => update(key, e.target.value === '' ? null : Number(e.target.value))} /></label>)}</div>
-    <label className="design-check"><input type="checkbox" disabled={disabled} checked={Boolean(val('input_mirror_near_crystal'))} onChange={e => update('input_mirror_near_crystal', e.target.checked)} />输入镜靠近晶体（未指定时用 3 mm 间隙）</label>
+    ].map(([key, label]) => <label key={key}>{label}<input type="number" step="any" aria-label={label} disabled={disabled} placeholder="未指定" value={val(key)} onChange={e => update(key, e.target.value === '' ? null : Number(e.target.value))} /></label>)}</div>
+    <label className="design-check"><input type="checkbox" disabled={disabled} checked={Boolean(val('input_mirror_near_crystal'))} onChange={e => update('input_mirror_near_crystal', e.target.checked)} />希望输入镜靠近晶体</label>
   </details>;
 }
 
@@ -40,17 +46,17 @@ function Bom({ items }) {
   return <div className="design-bom">{items.map(item => <article key={item.role}>
     <div className="design-card-heading"><h4>{item.role === 'M1' ? '输入腔镜 M1' : '输出耦合镜 M2'}</h4><span className={`design-pill ${item.status === 'in_stock' ? 'good' : 'warn'}`}>{{ in_stock: '有规格匹配库存', verify_or_buy: '库存待核验 / 采购', purchase: '采购缺口', owned: '已拥有 · 保留实物' }[item.status]}</span></div>
     <p>{item.spec}</p>{item.coating_basis && <small>{item.coating_basis}</small>}<p>有效通光口径 ≥ {fmt(item.min_clear_aperture_mm)} mm</p>
-    {item.role === 'M2' && <p>透过率：{item.transmission_pct ? `${item.transmission_pct}%` : `${item.transmission_candidates_pct.join(' / ')}% 场景待比较（实物未知）`}</p>}
+    {item.role === 'M2' && <p>透过率：{item.transmission_pct != null ? `${item.transmission_pct}%` : item.transmission_candidates_pct?.length ? `${item.transmission_candidates_pct.join(' / ')}% 场景待比较（实物未知）` : '尚未指定'}</p>}
     {item.matched.map(part => <div className="design-stock" key={part.id}><Link to={`/inventory?search=${encodeURIComponent(part.name)}`}>{part.name}</Link><small>可用 {part.available_quantity} · {part.location || '库位未填'}</small><p>{part.raw_spec}</p></div>)}
     {!!item.needs_verification.length && <details><summary>待核验库存（{item.counts.needs_verification}）</summary>{item.needs_verification.map(part => <div className="design-stock" key={part.id}><strong>{part.name}</strong><p>{part.unknowns.join('；')}</p><small>{part.raw_spec}</small></div>)}</details>}
     {!!item.rejected.length && <details><summary>已排除库存（{item.counts.rejected}）</summary>{item.rejected.map(part => <p key={part.id}>{part.name}：{part.reasons.join('；')}</p>)}</details>}
   </article>)}</div>;
 }
 
-export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) {
+export default function DesignWorkspace({ caseData, savedOnly = false, onAsk, openingRevision, openingRow, openingTarget }) {
   const [state, setState] = useState(null);
-  const [revisionId, setRevisionId] = useState(null);
-  const [rank, setRank] = useState(null);
+  const [revisionId, setRevisionId] = useState(openingRevision == null ? null : Number(openingRevision));
+  const [rank, setRank] = useState(openingRow == null ? null : Number(openingRow));
   const [message, setMessage] = useState(caseData.description || '');
   const [images, setImages] = useState([]);
   const [selected, setSelected] = useState([]);
@@ -58,11 +64,14 @@ export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [constraints, setConstraints] = useState({});
+  const [assumptionPolicy, setAssumptionPolicy] = useState('evidence_only');
   const inputRef = useRef(null);
+  const resultsRef = useRef(null);
   const lastMessageRef = useRef(null);
   const id = caseData.id;
   const latestRun = state?.runs?.[0];
   const busy = sending || ['pending', 'running'].includes(latestRun?.status);
+  const unknownOwner = latestRun?.execution_owner_state === 'unverified';
   const refresh = async () => {
     const data = await designApi.get(id);
     setState(data);
@@ -78,7 +87,7 @@ export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) 
     return () => { alive = false; };
   }, [id]);
   useEffect(() => {
-    if (!busy) return;
+    if (!busy || unknownOwner) return;
     let alive = true;
     let timer;
     const poll = async () => {
@@ -88,19 +97,28 @@ export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) 
     };
     timer = setTimeout(poll, 1000);
     return () => { alive = false; clearTimeout(timer); };
-  }, [busy, id]);
+  }, [busy, id, unknownOwner]);
   useEffect(() => {
     const container = lastMessageRef.current?.parentElement;
     if (container) container.scrollTop = container.scrollHeight;
   }, [state?.messages?.length]);
-  const revision = state?.revisions.find(r => r.id === revisionId) || state?.revisions[0];
+  const revision = revisionId == null ? state?.revisions[0] : state?.revisions.find(r => r.id === revisionId);
+  const selectedVersion = revision?.id;
+  useEffect(() => {
+    if (openingRevision != null && Number(openingRevision) === selectedVersion)
+      resultsRef.current?.scrollIntoView({block:'start'});
+  }, [openingRevision, selectedVersion]);
   const design = revision?.content.engineering_design;
-  const candidate = design?.candidates.find(c => c.rank === rank) || design?.candidates[(design?.selected_rank || 1) - 1];
+  const selection = rank ?? design?.selected_rank ?? 1;
+  const candidate = design?.candidates?.find(c => c.rank === selection);
+  const rows = design?.evidence_assessment?.cold_cavity?.rows;
+  const evidenceRow = rows?.[selection - 1];
+  const invalidSelection = design && rank != null && !candidate && !evidenceRow;
   const runDesign = async (text, patch = constraints) => {
     if (busy || uploading) return;
     setSending(true); setError('');
     try {
-      const run = await designApi.run(id, text, selected, patch);
+      const run = await designApi.run(id, text, selected, patch, assumptionPolicy);
       setMessage(''); setSelected([]); setRevisionId(null); setRank(null); setConstraints({});
       setState(prev => ({ ...prev, runs: [{ id: run.task_id, status: 'pending', steps: [] }, ...(prev?.runs || [])] }));
       await refresh();
@@ -124,6 +142,10 @@ export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) 
   };
   const seed = text => { if (onAsk) { onAsk(text); return; } setMessage(text); inputRef.current?.focus(); };
   return <div className={`design-workspace ${savedOnly ? 'saved-only' : ''}`}>
+    {unknownOwner && <div className="design-progress" role="status"><strong>设计任务 #{latestRun.id} 的运行归属待确认</strong>
+      <p>请先查看原执行窗口。确认该设计已停止后，可结束此编号并保留已有版本。</p>
+      <button className="btn btn-secondary" onClick={() => refresh().catch(e => setError(e.message))}>重新检查状态</button>
+      <button className="btn btn-secondary" onClick={() => designApi.endUnverified(id, latestRun.id).then(refresh).catch(e => setError(e.message))}>结束设计任务 #{latestRun.id}</button></div>}
     {!savedOnly && <aside className="design-conversation">
       <div className="design-section-title"><span className="design-eyebrow">DESIGN AGENT</span><h2>把实验目标交给 Agent</h2><p>需求 → 数值计算 → 库存选型 → 光路位置</p></div>
       <div className="design-messages" aria-live="polite">
@@ -131,36 +153,49 @@ export default function DesignWorkspace({ caseData, savedOnly = false, onAsk }) 
         {state?.messages.map(m => <div key={m.id} className={`design-message ${m.role}`}><small>{m.role === 'user' ? '你' : '设计 Agent'}</small><p>{m.content}</p>{m.metadata?.attachment_ids?.length > 0 && <small>附 {m.metadata.attachment_ids.length} 张标签图片</small>}</div>)}
         <div ref={lastMessageRef} />
       </div>
-      {latestRun && <div className="design-progress" role="status"><strong>{busy ? '正在生成新的设计版本…' : latestRun.status === 'failed' ? '本次计算未完成，已有设计已保留' : '设计版本已保存'}</strong>{latestRun.steps.map((step, i) => <div key={i} title={step.detail}><span>{step.status === 'completed' ? '✓' : step.status === 'failed' ? '!' : '◌'}</span>{step.title}{step.status === 'failed' && <p>{step.detail}</p>}</div>)}{latestRun.status === 'failed' && <button className="btn btn-secondary" onClick={() => { seed(latestRun.goal); const msg = state.messages.find(m => m.metadata?.design_run_id === latestRun.id && m.role === 'user'); setSelected(msg?.metadata?.attachment_ids || []); }}>恢复这次输入</button>}</div>}
+      {latestRun && !unknownOwner && <div className="design-progress" role="status"><strong>{busy ? '正在生成新的设计版本…' : latestRun.status === 'cancelled' ? '这轮设计已停止' : latestRun.status === 'failed' ? '本次计算未完成，已有设计已保留' : '设计版本已保存'}</strong>{latestRun.steps.map((step, i) => <div key={i} title={step.detail}><span>{step.status === 'completed' ? '✓' : step.status === 'failed' ? '!' : '◌'}</span>{step.title}{step.status === 'failed' && <p>{step.detail}</p>}</div>)}{latestRun.status === 'failed' && <button className="btn btn-secondary" onClick={() => { seed(latestRun.goal); const msg = state.messages.find(m => m.metadata?.design_run_id === latestRun.id && m.role === 'user'); setSelected(msg?.metadata?.attachment_ids || []); setConstraints(msg?.metadata?.constraints || {}); setAssumptionPolicy(msg?.metadata?.assumption_policy || 'exploratory'); }}>恢复这次输入</button>}</div>}
       <form className="design-composer" onSubmit={send}>
         <label htmlFor="design-message">告诉 Agent 你的需求或修改</label>
         <textarea id="design-message" ref={inputRef} value={message} onChange={e => setMessage(e.target.value)} rows={6} maxLength={20000} placeholder="例如：808 nm 泵浦 Nd:YVO4，获得 1064 nm 激光。已有两片透镜，请先设计腔镜与腔长。" />
-        <Constraints facts={state?.facts} inventory={state?.inventory || []} patch={constraints} onChange={setConstraints} disabled={busy || uploading} />
+        <Constraints facts={state?.facts} inventory={state?.inventory || []} patch={constraints} onChange={setConstraints} disabled={busy || uploading} policy={assumptionPolicy} onPolicyChange={setAssumptionPolicy} />
         {!!images.length && <details className="design-image-picker" open={selected.length > 0}><summary>标签图片 · 已选 {selected.length}/4</summary>{images.map(a => <label key={a.id}><input type="checkbox" checked={selected.includes(a.id)} disabled={busy || uploading || (!selected.includes(a.id) && selected.length >= 4)} onChange={() => setSelected(prev => prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id])} />{a.filename}</label>)}</details>}
-        <div className="design-composer-actions"><label className="btn btn-secondary design-upload">{uploading ? '上传中…' : '＋ 元件标签'}<input type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={busy || uploading || selected.length >= 4} onChange={upload} /></label><button className="btn btn-primary" disabled={busy || uploading}>{busy ? '计算中…' : design ? '更新设计 →' : '按目标开始设计 →'}</button></div>
+        <div className="design-composer-actions"><label className="btn btn-secondary design-upload">{uploading ? '上传中…' : '＋ 元件标签'}<input type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={busy || uploading || selected.length >= 4} onChange={upload} /></label><button className="btn btn-primary" disabled={busy || uploading}>{unknownOwner ? '请先核实上一轮' : busy ? '计算中…' : design ? '更新设计 →' : '按目标开始设计 →'}</button></div>
         {error && <div className="alert alert-error" role="alert">{error}<button type="button" onClick={() => refresh().then(() => setError('')).catch(err => setError(err.message))}>重新连接</button></div>}
       </form>
     </aside>}
-    <main className="design-results">
+    <main className="design-results" ref={resultsRef}>
       <div className="design-results-header"><div><span className="design-eyebrow">OPTICAL DESIGN</span><h2>实验设计台</h2></div>{revision && <select aria-label="设计版本" value={revision.id} onChange={e => { setRevisionId(Number(e.target.value)); setRank(null); }}><option disabled>选择版本</option>{state.revisions.map((r, i) => <option value={r.id} key={r.id}>版本 {state.revisions.length - i} · {new Date(r.generated_at).toLocaleString('zh-CN')}</option>)}</select>}</div>
-      {!design ? <div className="design-start"><div className="design-start-mark">λ</div><h3>先提需求，再做设计</h3><p>这里会生成可回看的设计版本，包括计算依据、腔型比较、光束包络、元件坐标和采购规格。</p><div className="design-start-grid"><span>01<br /><strong>事实与缺口</strong></span><span>02<br /><strong>扫描与比较</strong></span><span>03<br /><strong>位置与元件</strong></span></div><p className="text-muted">未知参数保留为空；可确定的部分先计算。</p></div> : <>
-        <div className="design-status-line"><span className={`design-pill ${design.status === 'modeled' ? 'good' : 'warn'}`}>{{ needs_input: '约束需修正 / 目标需明确', preliminary: '方案已求解 · 含设计假设', modeled: '名义模型已计算 · 实物待核验' }[design.status]}</span><small>{revision.model} + ABCD · {fmt(revision.latency_ms / 1000, 1)} s</small></div>
-        <p className="design-summary">{design.summary || revision.content.summary}</p>
-        {candidate?.placement && <section className="design-placement"><span className="design-eyebrow">当前候选 · 直接定位</span><div className="design-placement-grid"><div><small>M1 → 晶体前端面</small><strong>{fmt(candidate.placement.input_gap_mm)} <em>mm</em></strong></div><div><small>晶体物理总长</small><strong>{fmt(candidate.crystal.thickness_mm)} <em>mm</em></strong></div><div><small>晶体后端面 → M2</small><strong>{fmt(candidate.placement.output_gap_mm)} <em>mm</em></strong></div></div><p>两镜间距 {fmt(candidate.length_mm)} mm · M1 {mirrorText(candidate.R1_mm)} · M2 {mirrorText(candidate.R2_mm)} · T={candidate.bom[1].transmission_pct == null ? '未知' : `${candidate.bom[1].transmission_pct}%`}<br />泵浦名义焦点：晶体前端面内 {fmt(candidate.placement.focus_depth_mm)} mm；掺杂段位于 {fmt(candidate.placement.active_start_mm - candidate.placement.crystal_front_mm)}–{fmt(candidate.placement.active_end_mm - candidate.placement.crystal_front_mm)} mm。</p><small>{design.optimization?.claim}；不是尚未建立增益模型的输出功率最优值。</small></section>}
-        {!!design.issues.length && <div className="design-issues">{design.issues.map((issue, i) => <p key={i}><strong>{issue.level === 'blocking' ? '需修正' : '待核验'}</strong>{issue.text}</p>)}</div>}
-        <details className="design-section"><summary>已记录的事实 · {Object.keys(design.facts).length} 项（展开核对出处）</summary><div className="design-facts">{Object.entries(design.facts).map(([key, fact]) => <div key={key}><small>{fact.label}</small><strong>{valueText(fact)}</strong><blockquote>{fact.quote}</blockquote><small>{fact.verification === 'image_reading' ? '图片读取 · 请核对' : '用户陈述'} · {fact.source}</small></div>)}</div>{design.changes?.map((change, i) => <p key={i}>本轮修订 {change.key}：{String(change.before)} → {String(change.after)}</p>)}{design.intake_notes?.map((note, i) => <p key={i} className="text-muted">{note}</p>)}</details>
+      {savedOnly && error && <p role="alert">{error} <button className="btn btn-secondary" onClick={() => refresh().then(() => setError('')).catch(err => setError(err.message))}>重试读取</button></p>}
+      {state && revisionId != null && !revision ? <div role="alert">找不到此工程的设计记录 #{String(revisionId)}。<button className="btn btn-secondary" onClick={() => { setRevisionId(null); setRank(null); }}>查看最近记录</button></div> : !design ? <div className="design-start"><div className="design-start-mark">λ</div><h3>先提需求，再做设计</h3><p>这里会生成可回看的设计版本，包括计算依据、腔型比较、光束包络、元件坐标和采购规格。</p><div className="design-start-grid"><span>01<br /><strong>事实与缺口</strong></span><span>02<br /><strong>扫描与比较</strong></span><span>03<br /><strong>位置与元件</strong></span></div><p className="text-muted">未知参数保留为空；可确定的部分先计算。</p></div> : <>
+        <div className="design-status-line"><span className={`design-pill ${design.status === 'modeled' ? 'good' : 'warn'}`}>{{ needs_input: '部分计算需要补充输入', preliminary: '已取得阶段性计算结果', modeled: '名义模型已计算', unsupported: '超出当前模型的适用范围' }[design.status] || '查看模型说明'}</span><small>{revision.model ? `${revision.model} · ` : ''} {fmt(revision.latency_ms / 1000, 1)} s</small></div>
+        {!design.evidence_assessment && <p className="design-summary">{design.summary || revision.content.summary}</p>}
+        <DesignBasis key={revision.id} design={design} caseId={id} contentId={revision.id} selectedRow={selection}
+          onSelectRow={setRank} openingTarget={revision.id === Number(openingRevision) ? (openingTarget || (openingRow != null ? 'cold_cavity' : undefined)) : undefined}/>
+        {invalidSelection && <p role="alert">此版本没有第 {String(rank)} 项。<button className="btn btn-secondary" onClick={() => setRank(null)}>查看默认结果</button></p>}
+        {candidate?.placement && <section className="design-placement"><span className="design-eyebrow">当前候选 · 设计坐标</span><div className="design-placement-grid"><div><small>M1 → 晶体前端面</small><strong>{fmt(candidate.placement.input_gap_mm)} <em>mm</em></strong></div><div><small>晶体物理总长</small><strong>{fmt(candidate.crystal.thickness_mm)} <em>mm</em></strong></div><div><small>晶体后端面 → M2</small><strong>{fmt(candidate.placement.output_gap_mm)} <em>mm</em></strong></div></div><p>两镜间距 {fmt(candidate.length_mm)} mm · M1 {mirrorText(candidate.R1_mm)} · M2 {mirrorText(candidate.R2_mm)} · T={candidate.bom[1].transmission_pct == null ? '未知' : `${candidate.bom[1].transmission_pct}%`}<br />泵浦名义焦点：晶体前端面内 {fmt(candidate.placement.focus_depth_mm)} mm；掺杂段位于 {fmt(candidate.placement.active_start_mm - candidate.placement.crystal_front_mm)}–{fmt(candidate.placement.active_end_mm - candidate.placement.crystal_front_mm)} mm。</p><small>{design.optimization?.claim}</small></section>}
+        {!!design.issues?.length && <div className="design-issues">{design.issues.map((issue, i) => <p key={i}><strong>{issue.level === 'blocking' ? '需修正' : '待核验'}</strong>{issue.text}</p>)}</div>}
+        <details className="design-section"><summary>已记录的事实 · {Object.keys(design.facts || {}).length} 项（展开核对出处）</summary>
+          <div className="design-facts">{Object.entries(design.facts || {}).map(([key, fact]) => <div key={key}>
+            <small>{fact.label}</small><strong>{valueText(fact)}</strong><blockquote>{fact.quote}</blockquote>
+            <small>{sourceLabels[fact.verification] || '记录来源'} · {fact.source_file
+              ? `${fact.source_file.relative_path || fact.source_file.filename} · #${fact.source_file.attachment_id}`
+              : fact.source}{fact.source_file?.display_copy && ' · 首帧显示副本'}</small>
+          </div>)}</div>
+          {design.changes?.map((change, i) => <p key={i}>本轮修订 {change.key}：{String(change.before)} → {String(change.after)}</p>)}
+          {design.intake_notes?.map((note, i) => <p key={i} className="text-muted">{note}</p>)}
+        </details>
         {candidate && <>
           <section className="design-section"><div className="design-card-heading"><h3>腔型候选</h3><small>{design.search.evaluated} 个几何 · {design.search.step_mm} mm 步长</small></div><p className="text-muted">{design.search.objective}</p><div className="design-candidates">{design.candidates.map(c => <button key={c.rank} className={candidate.rank === c.rank ? 'selected' : ''} onClick={() => setRank(c.rank)}><small>候选 {c.rank}{c.rank === design.selected_rank ? ' · 推荐' : ''}</small><strong>M1 {mirrorText(c.R1_mm)} / M2 {mirrorText(c.R2_mm)}</strong><span>腔长 {fmt(c.length_mm, 0)} mm</span><span>模半径 {fmt(c.mode_radius_mm * 1000, 1)} μm</span></button>)}</div></section>
           <section className="design-section"><div className="design-card-heading"><h3>全光路布局与仿真</h3><a className="btn btn-secondary" href={designApi.rezonatorUrl(id, revision.id, candidate.rank)}>导出 Rezonator 冷腔</a></div><Layout candidate={candidate} /><p className="text-muted">顺序示意，非等比例；全部坐标相对 M1 镀膜面。透镜坐标为主面位置，设计假设见下方。</p>{candidate.pump.size_mismatch && <p className="design-mismatch">现有透镜成像尺寸与腔模相差超过 3 倍。请在泵浦成像页查看；当前候选不能称为整机效率最优方案。</p>}</section>
-          <OpticalAnalysis key={`${revision.id}-${candidate.rank}`} caseId={id} revisionId={revision.id} revisionNumber={state.revisions.length - state.revisions.findIndex(r => r.id === revision.id)} candidate={candidate} busy={busy} onAdoptGap={gap => savedOnly ? seed(`固定 M1 到晶体前端面 ${candidate.placement.input_gap_mm} mm、M1 ${mirrorText(candidate.R1_mm)}、M2 ${mirrorText(candidate.R2_mm)}，把 M2 到晶体后端面改为 ${gap} mm。请更新设计并与上一版比较。`) : runDesign(`固定当前 M1 间隙和 M2 曲率，把 M2 距晶体后端面改为 ${gap} mm，重新计算完整光路。`, { ...constraints, output_gap_mm: gap, input_roc_mm: candidate.R1_mm, output_roc_mm: candidate.R2_mm, input_mirror_flat: candidate.R1_mm == null, output_mirror_flat: candidate.R2_mm == null, crystal_front_mm: candidate.crystal.position_mm })} />
+          <OpticalAnalysis key={`${revision.id}-${candidate.rank}`} caseId={id} revisionId={revision.id} revisionNumber={state.revisions.length - state.revisions.findIndex(r => r.id === revision.id)} candidate={candidate} busy={busy} onAdoptGap={gap => savedOnly ? seed(`沿用历史方案 #${revision.id} 候选 ${candidate.rank} 的设计条件进行试算。保持 M1 到晶体前端面 ${candidate.placement.input_gap_mm} mm、M1 ${mirrorText(candidate.R1_mm)}、M2 ${mirrorText(candidate.R2_mm)}，把 M2 到晶体后端面改为 ${gap} mm。请与原方案比较。`) : runDesign(`固定当前 M1 间隙和 M2 曲率，把 M2 距晶体后端面改为 ${gap} mm，重新计算完整光路。`, { ...constraints, output_gap_mm: gap, input_roc_mm: candidate.R1_mm, output_roc_mm: candidate.R2_mm, input_mirror_flat: candidate.R1_mm == null, output_mirror_flat: candidate.R2_mm == null, crystal_front_mm: candidate.crystal.position_mm })} />
           <section className="design-section"><div className="design-card-heading"><h3>元件位置 / mm</h3><a className="btn btn-secondary" href={designApi.positionsUrl(id, revision.id, candidate.rank)}>导出坐标 CSV</a></div><div className="design-table-scroll"><table><thead><tr><th>元件</th><th>z 起点</th><th>z 终点</th><th>依据</th></tr></thead><tbody>{candidate.positions.map(p => <tr key={p.id}><td>{p.name}</td><td className={p.z_mm == null ? 'design-pending' : ''}>{fmt(p.z_mm)}</td><td>{p.end_z_mm == null ? '—' : fmt(p.end_z_mm)}</td><td>{p.basis}</td></tr>)}</tbody></table></div></section>
           <section className="design-section"><div className="design-card-heading"><h3>腔镜选型与采购缺口</h3><a className="btn btn-secondary" href={designApi.bomUrl(id, revision.id, candidate.rank)}>导出选型 CSV</a></div><p className="text-muted">已检查元件库 {design.inventory_count} 条记录。规格匹配仍需确认有效通光口径、镀膜面与入射角。</p><Bom items={candidate.bom} /><Link to="/inventory">打开元件库 →</Link></section>
           {!!candidate.components?.length && <section className="design-section"><h3>整条光路 · 已有器件与补齐清单</h3><div className="design-table-scroll"><table><thead><tr><th>元件</th><th>来源</th><th>规格 / 要求</th></tr></thead><tbody>{candidate.components.map(c => <tr key={c.role}><td>{c.name}</td><td>{{ owned: '沿用已有', bound: c.inventory?.mode === 'locked' ? '锁定库存' : '推荐库存', purchase: '需配备', in_stock: '库存匹配', verify_or_buy: '库存待核验' }[c.status]}{c.inventory && <small> #{c.inventory.id} {c.inventory.name}</small>}</td><td>{c.spec}</td></tr>)}</tbody></table></div></section>}
-          <section className="design-section"><h3>热透镜敏感性</h3><p className="text-muted">扫描会聚热透镜场景，尚未根据 6 W 泵浦或冷却条件计算实际热焦距。</p><div className="design-thermal">{candidate.thermal_scan.map(row => <div key={row.dioptre} className={row.stable ? 'stable' : 'unstable'}><small>f {row.f_mm == null ? '∞' : row.f_mm} mm</small><strong>{row.stable ? `${fmt(row.mode_radius_mm * 1000, 0)} μm` : '不稳定'}</strong><small>m {fmt(row.m, 3)}</small></div>)}</div><p className="text-muted">稳定条件 |(A+D)/2| &lt; 1；尺寸为掺杂段中心的腔模半径。</p></section>
-          <details className="design-section"><summary>输出耦合率比较 · 所需阈值增益</summary><p>{design.power_prediction.reason}</p><div className="design-table-scroll"><table><thead><tr><th>输出镜 T</th><th>其他往返损耗</th><th>所需增益 / cm⁻¹</th></tr></thead><tbody>{design.threshold_scan.map((r, i) => <tr key={i}><td>{r.T_pct}%</td><td>{r.round_trip_loss_pct}%</td><td>{r.required_gain_cm_inv}</td></tr>)}</tbody></table></div></details>
+          {!!candidate.thermal_scan?.length && <section className="design-section"><h3>热透镜敏感性</h3><p className="text-muted">每个焦距代表一种假设的会聚热透镜。实物热焦距需要测量，或结合热模型和冷却条件求解。</p><div className="design-thermal">{candidate.thermal_scan.map(row => <div key={row.dioptre} className={row.stable ? 'stable' : 'unstable'}><small>f {row.f_mm == null ? '∞' : row.f_mm} mm</small><strong>{row.stable ? `${fmt(row.mode_radius_mm * 1000, 0)} μm` : '不稳定'}</strong><small>m {fmt(row.m, 3)}</small></div>)}</div><p className="text-muted">稳定条件 |(A+D)/2| &lt; 1；尺寸为掺杂段中心的腔模半径。</p></section>}
+          {!!design.threshold_scan?.length && <details className="design-section"><summary>输出耦合率比较 · 所需阈值增益</summary><p>{design.power_prediction?.reason}</p><div className="design-table-scroll"><table><thead><tr><th>输出镜 T</th><th>其他往返损耗</th><th>所需增益 / cm⁻¹</th></tr></thead><tbody>{design.threshold_scan.map((r, i) => <tr key={i}><td>{r.T_pct}%</td><td>{r.round_trip_loss_pct}%</td><td>{r.required_gain_cm_inv}</td></tr>)}</tbody></table></div></details>}
         </>}
-        {!!design.questions.length && <details className="design-section"><summary>{candidate ? '进一步收敛不确定性（不阻止当前方案计算）' : '继续设计需要的目标信息'}</summary><div className="design-questions">{design.questions.map(q => <button key={q.key} title={q.why} onClick={() => seed(`${q.question}\n我的补充：`)}><strong>{q.question}</strong><small>{q.why}</small><span>补充 →</span></button>)}</div></details>}
-        <details className="design-section"><summary>计算内核、优化依据与设计假设</summary>{design.engine && <p><strong>{design.engine.name} · {design.engine.implementation}</strong><br />{design.engine.rezonator}<br />{design.engine.scope}</p>}{design.search?.score_formula && <p>{design.search.score_formula}</p>}{design.assumptions.map((a, i) => <p key={i}><strong>{a.name}：{String(a.value)} {a.unit}</strong><br />{a.basis}</p>)}{design.sources.map(s => <p key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></p>)}{design.next_steps?.map((s, i) => <p key={i}>{i + 1}. {s}</p>)}</details>
+        {!!design.questions?.length && <details className="design-section"><summary>{candidate ? '进一步收敛不确定性（不阻止当前方案计算）' : '继续设计需要的目标信息'}</summary><div className="design-questions">{design.questions.map(q => <button key={q.key} title={q.why} onClick={() => seed(`${q.question}\n我的补充：`)}><strong>{q.question}</strong><small>{q.why}</small><span>补充 →</span></button>)}</div></details>}
+        <details className="design-section"><summary>计算内核与优化依据</summary>{design.engine && <p><strong>{design.engine.name} · {design.engine.implementation}</strong><br />{design.engine.rezonator}<br />{design.engine.scope}</p>}{design.search?.score_formula && <p>{design.search.score_formula}</p>}{design.sources?.map(s => <p key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></p>)}{design.next_steps?.map((s, i) => <p key={i}>{i + 1}. {s}</p>)}</details>
       </>}
     </main>
   </div>;

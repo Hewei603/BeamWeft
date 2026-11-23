@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from app.physics.materials import n_real
-from app.physics.tmm import Layer, Stack, solve_stack, spectrum
+from app.physics.tmm import Layer, Stack, solve_RT, solve_stack, spectrum
 
 
 def test_bare_interface_matches_fresnel():
@@ -13,6 +13,32 @@ def test_bare_interface_matches_fresnel():
     res = solve_stack(Stack(layers=[], incident="air", substrate="fused_silica"), 1064.0, 0.0, "s")
     assert abs(res["R"] - r_fresnel) < 1e-9
     assert abs(res["R"] + res["T"] - 1.0) < 1e-9  # lossless
+
+
+def test_at_cutoff_layer_and_substrate_remain_finite_in_both_polarizations():
+    angle, incident = 45.0, 1.5
+    cutoff_index = incident * np.sin(np.deg2rad(angle))
+    with np.errstate(divide="raise", invalid="raise"):
+        for pol in ("s","p"):
+            r, t, a = solve_RT([cutoff_index], [80], 633, angle, pol, incident, cutoff_index)
+            np.testing.assert_allclose((r,t,a), (1,0,0), atol=1e-12)
+            # A finite evanescent layer can transmit into a higher-index exit.
+            actual = solve_RT([cutoff_index], [80], 633, angle, pol, incident, incident)
+            nearby = solve_RT([cutoff_index], [80], 633, angle + 1e-7, pol, incident, incident)
+            assert 0 < actual[1] < 1
+            np.testing.assert_allclose(actual, nearby, atol=1e-8)
+
+
+def test_opaque_film_has_finite_front_surface_reflectance_and_long_bragg_stack_conserves_power():
+    absorbing = 1.1 - 3j
+    expected_r = abs((1 - absorbing) / (1 + absorbing)) ** 2
+    with np.errstate(over="raise",invalid="raise"):
+        for thickness in (1000, 30000, 100000):
+            r, t, a = solve_RT([absorbing], [thickness], 633, 0, "s", 1, 1.5)
+            np.testing.assert_allclose((r,t,a), (expected_r,0,1-expected_r), atol=1e-12)
+        indices = np.tile([2.4,1.45], 1600)
+        r,t,a = solve_RT(indices, 633/(4*indices), 633, 0, "p", 1, 1.5)
+        np.testing.assert_allclose((r,t,a), (1,0,0), atol=1e-12)
 
 
 def test_ideal_quarterwave_ar_gives_zero_reflection():

@@ -1,6 +1,6 @@
-# LaserClaw Deployment and Acceptance Guide
+# BeamWeft Deployment and Acceptance Guide
 
-This guide defines the operational checks for a production-oriented LaserClaw deployment.
+This guide defines the operational checks for a production-oriented BeamWeft deployment.
 
 ## Local Smoke Test
 
@@ -86,19 +86,21 @@ API_KEY=replace-with-a-secret
 Clients must send:
 
 ```text
-X-LaserClaw-API-Key: replace-with-a-secret
+X-BeamWeft-API-Key: replace-with-a-secret
 X-User-Id: <user id>
 X-User-Role: user|reviewer|admin
 ```
 
+Clients configured with the original `X-LaserClaw-API-Key` header can continue using it.
+
 Project-level ACL is enforced for cases, knowledge search, attachments, generated content, Agent tasks, case modules, and bundle export.
 
-The built-in API-key mode is suitable for local and small trusted deployments. For shared production deployments, put LaserClaw behind a proper identity provider or reverse proxy that issues trusted user context server-side.
+The built-in API-key mode is suitable for local and small trusted deployments. For shared production deployments, put BeamWeft behind a proper identity provider or reverse proxy that issues trusted user context server-side.
 
 ## Data Locations
 
 - Database: SQLite locally or PostgreSQL in Docker.
-- Launcher (`Launch-LaserClaw.bat`) runs: all data lives OUTSIDE the code tree in
+- Launcher (`Launch-BeamWeft.bat`) runs: all data lives OUTSIDE the code tree in
   `%USERPROFILE%\LaserClaw-Data` (`laserclaw.db`, `uploads\`, `vector_store\`).
   On first start after upgrading from a pre-2.1 layout, the backend copies the
   legacy in-tree data there automatically (`backend/app/data_migration.py`); the
@@ -110,14 +112,14 @@ The built-in API-key mode is suitable for local and small trusted deployments. F
 
 ## 更新方法（写给实验室同学）
 
-1. 双击代码文件夹里的 **`Update-LaserClaw.bat`**。它会自动:关闭正在运行的
-   LaserClaw → 从 GitHub 拉取最新代码 → 重新启动。
+1. 双击代码文件夹里的 **`Update-BeamWeft.bat`**。它会自动:关闭正在运行的
+   BeamWeft → 从 GitHub 拉取最新代码 → 重新启动。
 2. 如果这台电脑没装 Git(更新器会用中文提示),就找维护者要一份新版压缩包,
-   解压到一个**新文件夹**,双击其中的 `Launch-LaserClaw.bat` 即可。
+   解压到一个**新文件夹**,双击其中的 `Launch-BeamWeft.bat` 即可。
 3. 实验数据(元件库、案例、借还记录、附件)保存在 `%USERPROFILE%\LaserClaw-Data`,
    **不在代码文件夹里**——无论哪种更新方式都不会丢数据。
 4. 更新后如果页面顶部出现红色横幅"后端程序是旧版本",按横幅提示关闭两个黑色
-   窗口再重新双击 `Launch-LaserClaw.bat`(启动器也会自动尝试接管旧进程)。
+   窗口再重新双击 `Launch-BeamWeft.bat`(启动器也会自动尝试接管旧进程)。
 
 ## Backup Guidance
 

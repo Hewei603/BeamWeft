@@ -3,12 +3,14 @@ from .agent import AgentChatMessage, AgentChatSession, AgentMemoryItem, AgentSes
 from .attachment import Attachment
 from .audit import AuditLog
 from .case_module import CaseComponentItem, CaseModule, CaseModuleFile
+from .component_model import ComponentModelRevision
 from .experiment_case import ExperimentCase
 from .generated_content import GeneratedContent
 from .inventory import CoatingSpec, InventoryItem, InventoryLoan
 from .knowledge import KnowledgeChunk, KnowledgeSource, RetrievalResult, RetrievalRun
 from .user import Group, GroupMember, Organization, Project, ProjectMember, User
 from .versioning import PromptVersion, RagEvalRun, WorkflowVersion
+from .. import attachment_evidence as _attachment_evidence  # noqa: F401 - register evidence retention hooks
 
 __all__ = [
     "AgentChatMessage",
@@ -24,6 +26,7 @@ __all__ = [
     "CaseModule",
     "CaseModuleFile",
     "CoatingSpec",
+    "ComponentModelRevision",
     "ExperimentCase",
     "InventoryItem",
     "InventoryLoan",

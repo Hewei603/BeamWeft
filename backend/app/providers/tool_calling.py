@@ -2,10 +2,11 @@
 import asyncio
 import json
 
+from .base import ModelTurnError
 from ..observability.usage import attach_usage_payload
 
 
-async def openai_turn(provider, instructions, messages, tools):
+async def openai_turn(provider, instructions, messages, tools, *, reasoning_effort=None):
     inputs = []
     for message in messages:
         if message["role"] == "assistant":
@@ -25,9 +26,13 @@ async def openai_turn(provider, instructions, messages, tools):
                              "parameters": t["parameters"], "strict": False} for t in tools],
         tool_choice="required", parallel_tool_calls=False, store=False,
         include=["reasoning.encrypted_content"], max_output_tokens=7000, timeout=120,
+        **({"reasoning": {"effort": reasoning_effort}} if reasoning_effort else {}),
     )
     if response.status != "completed":
-        raise RuntimeError("模型本轮未完整返回，已保存之前的工具结果；可继续任务。")
+        raise ModelTurnError("模型本轮未完整返回。")
+    if any(getattr(block, "type", None) == "refusal" for item in response.output
+           if item.type == "message" for block in (getattr(item, "content", None) or [])):
+        raise ModelTurnError("模型拒绝了本轮请求。", refused=True)
     result = {"items": [item.model_dump(exclude_none=True) for item in response.output],
               "calls": [{"id": item.call_id, "name": item.name, "arguments": item.arguments}
                         for item in response.output if item.type == "function_call"]}
@@ -63,7 +68,9 @@ async def anthropic_turn(provider, instructions, messages, tools):
         tool_choice={"type": "any", "disable_parallel_tool_use": True}, max_tokens=7000, timeout=120,
     )
     if response.stop_reason == "max_tokens":
-        raise RuntimeError("模型工具调用被截断；已保存之前的工具结果。")
+        raise ModelTurnError("模型工具调用被截断。")
+    if response.stop_reason == "refusal":
+        raise ModelTurnError("模型拒绝了本轮请求。", refused=True)
     result = {"items": [item.model_dump(exclude_none=True) for item in response.content],
               "calls": [{"id": item.id, "name": item.name, "arguments": json.dumps(item.input, ensure_ascii=False)}
                         for item in response.content if item.type == "tool_use"]}
@@ -88,8 +95,10 @@ async def compatible_turn(provider, instructions, messages, tools):
                                       messages=native, tools=[{"type": "function", "function": t} for t in tools],
                                       tool_choice="required", max_tokens=7000, timeout=120)
     choice = response.choices[0]
+    if getattr(choice.message, "refusal", None) or choice.finish_reason == "content_filter":
+        raise ModelTurnError("模型未获准为本轮请求生成答复。", refused=True)
     if choice.finish_reason == "length":
-        raise RuntimeError("模型工具调用被截断；已保存之前的结果。")
+        raise ModelTurnError("模型工具调用被截断。")
     result = {"items": [choice.message.model_dump(exclude_none=True)],
               "calls": [{"id": c.id, "name": c.function.name, "arguments": c.function.arguments} for c in choice.message.tool_calls or []]}
     return attach_usage_payload(result, provider="openai_compatible", model=provider.model,

@@ -106,6 +106,38 @@ def test_switching_providers_and_blank_key_preserve_each_profile(client):
     assert get_ai_provider().api_key == "replacement-key"
 
 
+def test_reasoning_settings_preserve_profiles_and_legacy_clients(client):
+    def options(data):
+        return {p["id"]: p for p in data["providers"] if "reasoning_efforts" in p}
+
+    initial = options(client.get(URL).json())
+    assert set(initial) == {"openai", "codex_exec"}
+    assert initial["openai"]["reasoning_effort"] == "auto"
+    assert "none" in initial["openai"]["reasoning_efforts"] and "ultra" not in initial["openai"]["reasoning_efforts"]
+    profile = {"provider": "openai", "model": "custom-deployment", "api_key": "test-key", "reasoning_effort": "high"}
+    assert client.put(URL, json=profile).status_code == 200
+    selected = get_ai_provider()
+    assert selected.reasoning_effort == "high"
+    assert client.put(URL, json={"provider": "deepseek", "model": "other", "api_key": "other-key"}).status_code == 200
+    assert get_ai_provider().reasoning_effort is None and get_ai_provider().compatible_tools
+    assert selected.reasoning_effort == "high" and not selected.compatible_tools
+    for bad in [{**profile, "reasoning_effort": "ultra"}, {**profile, "provider": "deepseek"}]:
+        assert client.put(URL, json=bad).status_code == 422
+    assert client.put(URL, json={"provider": "openai", "model": "changed-model"}).status_code == 200
+    get_settings.cache_clear()
+    assert options(client.get(URL).json())["openai"]["reasoning_effort"] == "high"
+    assert client.put(URL, json={**profile, "reasoning_effort": "auto"}).status_code == 200
+    assert get_ai_provider().reasoning_effort is None
+
+
+def test_explicit_openai_effort_is_used_by_chat_generation(client, isolated_provider_clients):
+    profile = {"provider": "openai", "model": "custom-deployment", "api_key": "test-key", "reasoning_effort": "none"}
+    client.put(URL, json=profile).raise_for_status()
+    cid = client.post("/api/cases", json={"title": "Synthetic effort fixture"}).json()["id"]
+    client.post(f"/api/cases/{cid}/generate-report", json={"use_rag": False}).raise_for_status()
+    assert isolated_provider_clients[-1]["reasoning_effort"] == "none"
+
+
 @pytest.mark.parametrize("patch", [
     {"model": " "}, {"api_key": ""}, {"api_key": "has spaces"},
     {"base_url": "not-a-url"}, {"base_url": "https://example.test:wrong/v1"},
@@ -143,7 +175,9 @@ def test_settings_endpoint_uses_existing_auth_rules(client, monkeypatch):
     get_settings.cache_clear()
     assert client.get(URL).status_code == 401
     assert client.put(URL, json={"provider": "mock"}).status_code == 401
+    assert client.get(URL, headers={"X-BeamWeft-API-Key": "application-key"}).status_code == 403
     assert client.get(URL, headers={"X-LaserClaw-API-Key": "application-key"}).status_code == 403
+    assert client.get(URL, headers={"X-BeamWeft-API-Key": "incorrect", "X-LaserClaw-API-Key": "application-key"}).status_code == 401
 
 
 def test_only_model_overrides_persist_and_environment_defaults_stay_intact(client, monkeypatch):

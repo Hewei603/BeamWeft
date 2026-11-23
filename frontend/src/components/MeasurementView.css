@@ -1,0 +1,21 @@
+.measurement-view {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid #40566a;
+  border-radius: 9px;
+  background: #131d2a;
+  color: #dce7ef;
+  min-width: 0;
+}
+.measurement-view summary {cursor:pointer; color:#b6d9d2;}
+.measurement-checksum {overflow-wrap:anywhere; color:#a9bdc9;}
+.measurement-view fieldset {border:0; margin:0; padding:.75rem 0 0; min-width:0;}
+.measurement-fields {display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:.65rem; margin-bottom:.7rem;}
+.measurement-fields label {display:grid; gap:.25rem; color:#b8ccd7; font-size:.85rem;}
+.measurement-fields input,.measurement-fields select {width:100%; min-width:0; padding:.45rem; color:#e0eaf0; background:#192a38; border:1px solid #516779; border-radius:4px;}
+.measurement-result {min-width:0; overflow-wrap:anywhere;}
+.measurement-result .oa-plot {height:310px; min-height:310px;}
+.measurement-extrema {display:flex; flex-wrap:wrap; gap:.6rem; margin:.75rem 0;}
+.measurement-extrema button {display:grid; gap:.25rem; text-align:left; padding:.55rem .85rem; border:1px solid #526777; border-radius:5px; background:#1d3040; color:#c8d8e3; cursor:pointer;}
+.measurement-extrema strong {font-size:1.12rem; color:#a4e6d9;}
+.measurement-view p,.measurement-result p {line-height:1.65;}

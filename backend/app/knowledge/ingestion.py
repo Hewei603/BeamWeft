@@ -72,8 +72,8 @@ def extract_text_from_file(filepath: str, content_type: Optional[str] = None) ->
             pass
         try:
             from pypdf import PdfReader
-        except Exception:
-            return "PDF uploaded. Install pypdf to extract searchable text."
+        except ImportError as exc:
+            raise ValueError("PDF 读取依赖 pypdf 不可用。") from exc
         reader = PdfReader(filepath)
         pages = []
         for index, page in enumerate(reader.pages, start=1):
@@ -143,7 +143,10 @@ def upsert_case_source(db: Session, case: ExperimentCase) -> KnowledgeSource:
 
 
 def create_attachment_source(db: Session, attachment: Attachment) -> KnowledgeSource:
-    text = extract_text_from_file(attachment.filepath, attachment.file_type)
+    from ..attachment_files import case_index_text
+    text = case_index_text(attachment)
+    if not text.strip():
+        raise ValueError("附件没有可索引的文字")
     source = KnowledgeSource(
         case_id=attachment.case_id,
         attachment_id=attachment.id,

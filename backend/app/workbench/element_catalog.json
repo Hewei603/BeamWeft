@@ -1,0 +1,25 @@
+{
+  "parameters": {
+    "length_mm": "长度 / mm", "n": "折射率 n", "focal_mm": "空气等效焦距 f / mm",
+    "radius_mm": "曲率 R / mm", "aoi_deg": "入射角 / °", "front_radius_mm": "前面 R / mm",
+    "back_radius_mm": "后面 R / mm", "gradient_per_mm": "GRIN g / mm⁻¹"
+  },
+  "models": {
+    "space": {"label": "均匀介质传播", "parameters": ["length_mm", "n"]},
+    "lens": {"label": "薄透镜", "parameters": ["focal_mm"]},
+    "mirror": {"label": "反射镜", "parameters": ["radius_mm", "aoi_deg"]},
+    "thick_lens": {"label": "厚透镜 / 曲面基底", "parameters": ["length_mm", "n", "front_radius_mm", "back_radius_mm"]},
+    "grin": {"label": "梯度折射率元件", "parameters": ["length_mm", "n", "gradient_per_mm"]},
+    "matrix": {"label": "自定义 ABCD", "parameters": []}
+  },
+  "presets": {
+    "gap": {"kind": "space", "name": "空气间距", "length_mm": 20, "n": 1, "index_reference": {"model": "air"}},
+    "stop": {"kind":"space","name":"光阑","length_mm":0,"n":1,"clear_aperture":{"shape":"ellipse","width_mm":1}},
+    "space": {"kind": "space", "name": "平行介质片", "medium_role": "medium", "length_mm": 5, "n": null, "index_reference": {"model": null, "wavelength_nm": null}},
+    "lens": {"kind": "lens", "name": "薄透镜", "focal_mm": 50},
+    "mirror": {"kind": "mirror", "name": "平面折转镜", "radius_mm": null},
+    "thick_lens": {"kind": "thick_lens", "name": "厚透镜", "length_mm": 5, "n": null, "front_radius_mm": 50, "back_radius_mm": -50},
+    "grin": {"kind": "grin", "name": "GRIN 元件", "length_mm": 5, "n": null, "gradient_per_mm": 0.02},
+    "matrix": {"kind": "matrix", "name": "自定义 ABCD", "matrix_t": [1, 0, 0, 1]}
+  }
+}

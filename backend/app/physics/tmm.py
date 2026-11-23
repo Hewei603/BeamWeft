@@ -18,6 +18,8 @@ only as the ratio ``d/lambda`` inside the phase, so any consistent unit works).
 """
 from __future__ import annotations
 
+import cmath
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -51,14 +53,14 @@ class Stack:
     """A coating: incident medium, ordered layers (incident side first), substrate."""
 
     layers: list[Layer] = field(default_factory=list)
-    incident: str = "air"
-    substrate: str = "fused_silica"
+    incident: str | complex = "air"
+    substrate: str | complex = "fused_silica"
 
     def incident_index(self, wavelength_nm: float) -> complex:
-        return index_of(self.incident, wavelength_nm)
+        return index_of(self.incident, wavelength_nm) if isinstance(self.incident, str) else complex(self.incident)
 
     def substrate_index(self, wavelength_nm: float) -> complex:
-        return index_of(self.substrate, wavelength_nm)
+        return index_of(self.substrate, wavelength_nm) if isinstance(self.substrate, str) else complex(self.substrate)
 
 
 def _cos_theta(n: complex, n0_sin0: complex) -> complex:
@@ -66,15 +68,14 @@ def _cos_theta(n: complex, n0_sin0: complex) -> complex:
 
     ``n0_sin0 = n_incident * sin(theta_incident)`` is conserved (Snell).  With
     the ``n - ik`` convention the physical (forward) branch is fixed by
-    **forward power flow**: ``Re(n*cos) >= 0``, using ``Im(n*cos) >= 0`` only as
-    a tie-break when ``Re`` vanishes (the evanescent / total-internal-reflection
-    case, where the transmitted wave must decay into the medium).
+    **forward power flow**: ``Re(n*cos) >= 0``. For a purely evanescent wave,
+    the forward factor exp(-i kz z) decays when ``Im(n*cos) <= 0``.
     """
     n = complex(n)
     sin2 = (n0_sin0 / n) ** 2
-    cos = np.sqrt(1.0 - sin2)
+    cos = cmath.sqrt(1.0 - sin2)
     ncos = n * cos
-    if ncos.real < -1e-12 or (abs(ncos.real) < 1e-12 and ncos.imag < 0):
+    if ncos.real < 0 or (ncos.real == 0 and ncos.imag > 0):
         cos = -cos
     return cos
 
@@ -102,8 +103,7 @@ def solve_RT(
     Returns ``(R, T, A)`` with ``A = 1 - R - T``.
 
     Assumes a **lossless incident medium** (the closed-form ``R = |r|^2`` and
-    ``T = 4 Re(eta0) Re(eta_s)/|eta0 B + C|^2`` are exact only then; here the
-    incident medium is always air/vacuum).  The substrate and layers may be
+    ``T = 4 Re(eta0) Re(eta_s)/|eta0 B + C|^2`` are exact only then). The substrate and layers may be
     lossy.  At exactly grazing incidence (90 deg) the physical limit ``R=1,
     T=0`` is returned to avoid the ``n/cos`` singularity for p-polarization.
 
@@ -115,41 +115,63 @@ def solve_RT(
 
     n0 = complex(n_incident)
     ns = complex(n_substrate)
-    theta0 = np.deg2rad(aoi_deg)
-    if abs(np.cos(theta0)) < 1e-12:
+    theta0 = math.radians(aoi_deg)
+    if abs(math.cos(theta0)) < 1e-12:
         return 1.0, 0.0, 0.0  # grazing incidence: total reflection in the paraxial limit
-    n0_sin0 = n0 * np.sin(theta0)
+    n0_sin0 = n0 * math.sin(theta0)
 
     cos0 = _cos_theta(n0, n0_sin0)
     coss = _cos_theta(ns, n0_sin0)
     eta0 = _admittance(n0, cos0, pol)
-    etas = _admittance(ns, coss, pol)
+    # A scaled forward substrate field keeps the p admittance finite at the
+    # critical angle. Its normal flux is Re(conj(E) H) in both polarizations.
+    exit_e, exit_h = (1.0, ns * coss) if pol == "s" else (coss, ns)
 
     # Characteristic matrix of the stack (product of layer matrices).
-    m = np.eye(2, dtype=complex)
-    two_pi = 2.0 * np.pi
+    m11, m12, m21, m22 = 1.0, 0.0, 0.0, 1.0
+    log_scale = 0.0
+    wavenumber = math.tau / float(wavelength_nm)
     for n_layer, d_nm in zip(layers_n, layers_d_nm):
         n_layer = complex(n_layer)
         cosj = _cos_theta(n_layer, n0_sin0)
-        etaj = _admittance(n_layer, cosj, pol)
-        delta = two_pi * n_layer * d_nm * cosj / wavelength_nm
-        cd = np.cos(delta)
-        sd = np.sin(delta)
-        mj = np.array(
-            [[cd, 1j * sd / etaj], [1j * etaj * sd, cd]],
-            dtype=complex,
-        )
-        m = m @ mj
+        phase_scale = wavenumber * float(d_nm)
+        delta = phase_scale * n_layer * cosj
+        attenuation = abs(delta.imag)
+        if attenuation > 1:
+            # Evaluate exp(±iδ) after removing their common positive scale.
+            # This retains the reflected field even when transmission underflows.
+            forward = cmath.exp(complex(-delta.imag - attenuation, delta.real))
+            backward = cmath.exp(complex(delta.imag - attenuation, -delta.real))
+            cd, sd = (forward + backward) / 2, (forward - backward) / (2j)
+            log_scale += attenuation
+        else:
+            cd, sd = cmath.cos(delta), cmath.sin(delta)
+        # sin(delta)/delta approaches 1 at normal wavevector cutoff.
+        factor = phase_scale * (sd / delta if delta != 0 else 1.0)
+        if pol == "s":
+            b_layer, c_layer = factor, factor * (n_layer * cosj) ** 2
+        else:
+            b_layer, c_layer = factor * cosj ** 2, factor * n_layer ** 2
+        upper, lower = 1j * b_layer, 1j * c_layer
+        # Right-multiply the cumulative 2×2 characteristic matrix by this layer.
+        m11, m12 = m11 * cd + m12 * lower, m11 * upper + m12 * cd
+        m21, m22 = m21 * cd + m22 * lower, m21 * upper + m22 * cd
+        # Lossless reflectors can also produce an exponentially large product.
+        magnitude = max(abs(m11), abs(m12), abs(m21), abs(m22))
+        if magnitude > 1e100:
+            m11, m12 = m11 / magnitude, m12 / magnitude
+            m21, m22 = m21 / magnitude, m22 / magnitude
+            log_scale += math.log(magnitude)
 
-    # [B, C]^T = M @ [1, eta_s]^T
-    b = m[0, 0] + m[0, 1] * etas
-    c = m[1, 0] + m[1, 1] * etas
+    b = m11 * exit_e + m12 * exit_h
+    c = m21 * exit_e + m22 * exit_h
 
     denom = eta0 * b + c
     r = (eta0 * b - c) / denom
-    R = float(np.abs(r) ** 2)
+    R = abs(r) ** 2
     # Transmittance into a (possibly lossy) substrate.
-    T = float(4.0 * eta0.real * etas.real / (np.abs(denom) ** 2))
+    exit_flux = (exit_e.conjugate() * exit_h).real
+    T = 4.0 * eta0.real * exit_flux * math.exp(-2 * log_scale) / abs(denom) ** 2
     A = 1.0 - R - T
     return R, T, A
 

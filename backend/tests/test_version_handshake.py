@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from app.main import app
-from app.version import APP_VERSION
+from app.version import APP_NAME, APP_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,8 +25,14 @@ def test_health_reports_app_version(client):
 
 
 def test_root_and_openapi_report_app_version(client):
-    assert client.get("/").json()["version"] == APP_VERSION
+    root = client.get("/").json()
+    assert root["version"] == APP_VERSION
+    assert root["message"] == app.title == APP_NAME + " API"
     assert app.version == APP_VERSION
+    operation = app.openapi()["paths"]["/api/settings/agent"]["get"]
+    headers = {p["name"].lower() for p in operation["parameters"] if p["in"] == "header"}
+    assert "x-beamweft-api-key" in headers
+    assert "x-laserclaw-api-key" not in headers
 
 
 def test_frontend_expected_version_matches_backend():

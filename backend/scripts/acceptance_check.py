@@ -24,7 +24,7 @@ def run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run local LaserClaw acceptance checks.")
+    parser = argparse.ArgumentParser(description="Run local BeamWeft acceptance checks.")
     parser.add_argument("--skip-frontend", action="store_true")
     parser.add_argument("--skip-lint", action="store_true")
     parser.add_argument("--skip-tests", action="store_true")

@@ -1,1 +1,1 @@
-"""LaserClaw backend application package."""
+"""BeamWeft backend application package."""

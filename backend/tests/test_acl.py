@@ -63,6 +63,22 @@ def test_case_view_requires_acl(client):
 
     forbidden = client.get(f"/api/cases/{case_id}", headers=_user_headers(outsider_id))
     assert forbidden.status_code == 403
+    for uid, expected in [(owner_id, [case_id]), (outsider_id, [])]:
+        page = client.get("/api/cases/library", headers=_user_headers(uid)).json()
+        assert [case["id"] for case in page["items"]] == expected
+
+
+def test_an_upload_started_by_another_editor_is_not_resumed_with_current_identity(client):
+    case_id, owner, _ = _create_project_case(client)
+    url = f"/api/cases/{case_id}"
+    owner_scope = client.get(url, headers=_user_headers(owner)).json()["draft_scope"]
+    admin_scope = client.get(url, headers=_admin_headers()).json()["draft_scope"]
+    assert owner_scope != admin_scope
+    for scope, expected in ((owner_scope, 409), (admin_scope, 201)):
+        response = client.post(url + "/attachments", headers=_admin_headers(),
+                               data={"expected_scope": scope}, files={"file": ("scan.txt", b"12 mV")})
+        assert response.status_code == expected, response.text
+    assert len(client.get(url + "/attachments", headers=_admin_headers()).json()) == 1
 
 
 def test_knowledge_search_does_not_leak_inaccessible_case_chunks(client):

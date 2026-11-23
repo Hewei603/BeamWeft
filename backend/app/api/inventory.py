@@ -16,6 +16,8 @@ from ..config import get_settings
 from ..database import get_db
 from ..inventory.evaluator import evaluate_candidates
 from ..inventory.importer import InventoryRefreshConflict, refresh_workbook
+from ..inventory.crystals import ManualItemCreate, ManualItemPatch
+from ..inventory.service import create_item, update_item, InventoryItemMissing, InventoryPermissionError
 from ..models import CoatingSpec, InventoryItem, InventoryLoan
 from ..observability.audit import record_audit
 from ..schemas import (
@@ -29,6 +31,50 @@ from ..schemas import (
 
 router = APIRouter()
 settings = get_settings()
+
+
+def _manual_item_payload(item, db):
+    item.on_loan_qty = _open_loan_totals(db, [item.id]).get(item.id, 0.0)
+    item.available_qty = float(item.quantity or 0) - item.on_loan_qty
+    return item
+
+
+@router.post("/items", response_model=InventoryItemResponse, status_code=201)
+def create_manual_item(payload: ManualItemCreate, db: Session = Depends(get_db),
+                       principal: Principal = Depends(get_current_principal)):
+    try:
+        item = create_item(db, payload, principal)
+    except InventoryPermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    db.commit()
+    db.refresh(item)
+    return _manual_item_payload(item, db)
+
+
+@router.get("/items/{item_id}", response_model=InventoryItemResponse)
+def read_inventory_item(item_id: int, db: Session = Depends(get_db),
+                        principal: Principal = Depends(get_current_principal)):
+    _ = principal
+    item = db.query(InventoryItem).options(selectinload(InventoryItem.coatings)).filter_by(id=item_id).first()
+    if item is None:
+        raise HTTPException(404, "元件不存在")
+    return _manual_item_payload(item, db)
+
+
+@router.patch("/items/{item_id}", response_model=InventoryItemResponse)
+def update_manual_item(item_id: int, payload: ManualItemPatch, db: Session = Depends(get_db),
+                       principal: Principal = Depends(get_current_principal)):
+    try:
+        item = update_item(db, item_id, payload, principal)
+    except InventoryPermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except InventoryItemMissing as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    db.commit()
+    db.refresh(item)
+    return _manual_item_payload(item, db)
 
 
 @router.post("/import", response_model=InventoryImportResponse)
@@ -274,10 +320,11 @@ async def return_loan(
     if loan.returned_at is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该借用记录已经归还过了。")
 
+    item = db.query(InventoryItem).filter(InventoryItem.id == loan.item_id).first()
+    if item is not None and payload.condition_on_return is not None:
+        _check_condition_transition(item, payload.condition_on_return, principal)
     loan.returned_at = datetime.now(timezone.utc)
     loan.returned_note = payload.note
-
-    item = db.query(InventoryItem).filter(InventoryItem.id == loan.item_id).first()
     # Returning something broken is the moment a person actually knows it is
     # broken, so this is the natural place to record it.
     if payload.condition_on_return and item is not None:
@@ -312,6 +359,12 @@ async def list_loans(
     return [_loan_payload(loan, loan.item) for loan in loans]
 
 
+def _check_condition_transition(item, condition, principal):
+    if (condition is None or (item.effective_condition == "damaged" and condition != "damaged")) and not can_manage_knowledge(principal):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="解除损坏或撤销人工状态需要 reviewer 或 admin 权限；可归还并保留原损坏标记。")
+
+
 @router.patch("/items/{item_id}/condition")
 async def set_item_condition(
     item_id: int,
@@ -330,9 +383,7 @@ async def set_item_condition(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"元件 {item_id} 不存在")
 
-    if payload.condition is None and not can_manage_knowledge(principal):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="撤销损坏标记需要 reviewer 或 admin 权限")
+    _check_condition_transition(item, payload.condition, principal)
 
     item.condition_manual = payload.condition
     item.condition_note = payload.note

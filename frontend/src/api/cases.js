@@ -3,7 +3,16 @@
  */
 import apiClient, { API_BASE_URL } from './client';
 
+export function caseWorkspaceUrl(item) {
+  const url = '/cases/' + item.id;
+  return item.opening_revision_id == null ? url : url + '?model_revision=' + item.opening_revision_id;
+}
+
 export const casesApi = {
+  library: async (params = {}, signal) => {
+    const response = await apiClient.get('/api/cases/library', { params, signal });
+    return response.data;
+  },
   // 获取所有案例
   list: async (params = {}) => {
     const response = await apiClient.get('/api/cases', { params });
@@ -27,6 +36,7 @@ export const casesApi = {
     const response = await apiClient.put(`/api/cases/${id}`, data);
     return response.data;
   },
+  updateDetails: async (id, data) => (await apiClient.patch(`/api/cases/${id}/details`, data)).data,
 
   // 删除案例
   delete: async (id) => {
@@ -53,16 +63,20 @@ export const casesApi = {
   },
 
   // 获取生成的内容
-  getGeneratedContents: async (id, contentType = null) => {
+  getGeneratedContents: async (id, contentType = null, limit = null) => {
     const params = contentType ? { content_type: contentType } : {};
+    if (limit != null) params.limit = limit;
     const response = await apiClient.get(`/api/cases/${id}/generated-contents`, { params });
     return response.data;
   },
 
   // 上传附件
-  uploadAttachment: async (id, file) => {
+  uploadAttachment: async (id, file, uploadId, path = file.webkitRelativePath || file.name, scope) => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, path.split('/').pop());
+    formData.append('relative_path', path);
+    if (uploadId) formData.append('upload_id', uploadId);
+    if (scope) formData.append('expected_scope', scope);
     const response = await apiClient.post(`/api/cases/${id}/attachments`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -72,8 +86,22 @@ export const casesApi = {
   },
 
   // 获取附件列表
-  listAttachments: async (id) => {
-    const response = await apiClient.get(`/api/cases/${id}/attachments`);
+  listAttachments: async (id, params) => {
+    const response = await apiClient.get(`/api/cases/${id}/attachments`, {params});
+    return response.data;
+  },
+
+  previewAttachment: async (id, offset = 0) => {
+    const response = await apiClient.get(`/api/attachments/${id}/preview`, { params: { offset } });
+    return response.data;
+  },
+
+  restoreOriginal: async (id, file) => {
+    const data = new FormData();
+    data.append('file', file);
+    const response = await apiClient.put(`/api/attachments/${id}/original`, data, {
+      headers: {'Content-Type':'multipart/form-data'},
+    });
     return response.data;
   },
 
@@ -142,7 +170,20 @@ export const casesApi = {
   },
 
   bundleUrl: (id) => `${API_BASE_URL}/api/cases/${id}/bundle`,
-  moduleFileUrl: (fileId) => `${API_BASE_URL}/api/cases/module-files/${fileId}`,
+  projectFileUrl: (id, revision) => `${API_BASE_URL}/api/cases/${id}/project-file` +
+    (revision == null ? '' : '?revision_id=' + encodeURIComponent(revision)),
+  chooseSaveLocation: async () => (await apiClient.post('/api/document/save-location')).data.selection,
+  saveOpenedFile: async (revision, selection) =>
+    (await apiClient.post('/api/document/save', null, {params:{revision_id:revision, selection}})).data,
+  documentPicker: async () => (await apiClient.get('/api/desktop/document-picker')).data.available,
+  openDocument: async () => (await apiClient.post('/api/desktop/document-picker')).data.url,
+  downloadModuleFile: async id => (await apiClient.get(`/api/cases/module-files/${id}`, {responseType:'blob'})).data,
+  restoreModuleFile: async (id, file) => {
+    const body = new FormData();
+    body.append('file', file);
+    return (await apiClient.put(`/api/cases/module-files/${id}/original`, body,
+      {headers:{'Content-Type':'multipart/form-data'}})).data;
+  },
   procurementUrl: (id) => `${API_BASE_URL}/api/cases/${id}/components/procurement.csv`,
   bomUrl: (id) => `${API_BASE_URL}/api/cases/${id}/components/bom.csv`,
 };

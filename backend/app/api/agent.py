@@ -245,7 +245,7 @@ async def chat(
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ):
-    """Chat with LaserClaw Agent, optionally routing the message to a saved tool artifact."""
+    """Chat with BeamWeft Agent, optionally routing the message to a saved tool artifact."""
     session = _get_or_create_session(request, db, principal)
     case = _get_case(session.case_id, db, principal)
     db.add(AgentChatMessage(session_id=session.id, role="user", content=request.message, metadata_json={"mode": request.mode}))
@@ -292,7 +292,7 @@ async def chat(
 
     if case is None:
         assistant_text = (
-            "请先在上方选择(关联)一个实验案例,再让 LaserClaw 生成可保存的实验计划、"
+            "请先在上方选择(关联)一个实验案例,再让 BeamWeft 生成可保存的实验计划、"
             "故障排查、报告或物理模块结果——生成的内容都会存到该案例名下。"
         )
         db.add(

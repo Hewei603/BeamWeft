@@ -14,3 +14,35 @@
 .wb-engine{font-size:12px;color:#abc0d2}.wb-tool summary small{font-size:11px}
 .wb-plots>label{display:flex;flex-direction:column;gap:8px;color:#d5e1ed;font-size:13px;margin:14px 0}.wb-plots select{width:100%;max-width:100%;background:#1b2b3b;border:1px solid #466078;color:#deebf6;border-radius:6px;padding:10px;font-size:13px}
 .wb-result-header{flex-wrap:wrap}.wb-result-header h2{font-size:23px}
+
+/* Persistent task context and object-oriented work views. */
+.wb-run-selector{display:flex;flex-direction:column;gap:6px;font-size:11px;color:#aabed0;margin-left:auto}.wb-result-header .wb-run-selector select{font-size:12px;max-width:230px}
+.wb-workspace-context{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #6caa9a35;border-radius:8px;background:#20423e24;padding:10px 13px;margin:0 0 15px;font-size:12px;color:#a6bccc}.wb-workspace-context button{background:none;border:0;padding:0;color:#acd7cd;font:inherit;text-align:left;cursor:pointer}.wb-workspace-context button:last-child{margin-left:auto;font-size:11px}
+.wb-reference-chips{font-size:11px;margin:3px 0 12px}.wb-reference-chips>small{display:block;color:#a7bdb8;margin-bottom:7px}.wb-reference-chips>div{display:flex;flex-wrap:wrap;gap:5px;max-height:100px;overflow:auto}.wb-reference-chips button{border:1px solid #6ca99640;border-radius:5px;background:#26524535;color:#c5e0d8;padding:4px 7px;font-size:11px;cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}.wb-reference-chips button span{color:#8ea6a1}
+.wb-evidence-intro{margin:8px 0 20px}.wb-evidence-intro h3{font-size:18px;margin-bottom:8px}.wb-evidence-intro p,.wb-evidence-card>p{font-size:12px;line-height:1.9;color:#afc0cf}.wb-evidence-card{border:1px solid #ffffff18;border-radius:10px;background:#172432;padding:20px;margin:0 0 16px;font-size:13px;line-height:1.9;overflow-wrap:anywhere}.wb-evidence-card h4{font-size:15px;color:#d3e5df;margin:0 0 13px}.wb-evidence-card>strong{font-size:14px}.wb-evidence-card p{margin:8px 0 13px;white-space:pre-wrap}.wb-evidence-card details{padding:11px 0;border-top:1px solid #ffffff12;font-size:12px}.wb-evidence-card summary{color:#b9cdc7;cursor:pointer}.wb-evidence-card .btn{font-size:11px;padding:7px 10px;margin-top:8px}.wb-evidence-file{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid #ffffff13;padding:11px 0}.wb-evidence-file label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;font-size:12px;overflow-wrap:anywhere}.wb-evidence-file label small{display:block;color:#8fa9bc;font-size:10px}.wb-evidence-file .btn{white-space:nowrap;margin:0}.wb-fact{border-top:1px solid #ffffff12;padding:14px 0 5px}.wb-fact>small{color:#91b4bb;font-size:11px;overflow-wrap:anywhere}.wb-fact p{font-size:13px;line-height:1.85}.wb-fact>.btn{display:block}.wb-advanced{border-top:1px solid #ffffff17;padding:18px 2px;margin-top:25px;font-size:12px;color:#9eb3c7}.wb-advanced>summary{cursor:pointer;color:#a8babf}.wb-advanced>details{margin-top:15px}.wb-advanced>details>summary{cursor:pointer}.wb-advanced .design-workspace{margin-top:16px}
+@media(max-width:1100px){.wb-result-header .wb-run-selector{margin-left:0}.wb-evidence-card{padding:16px}.wb-evidence-file{align-items:flex-start;flex-wrap:wrap}}
+.wb-receipt-calls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 6px 12px;
+  margin: 16px 0;
+}
+.wb-receipt-calls button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #78949e55;
+  border-radius: 4px;
+  background: transparent;
+  color: #d4e4ec;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.wb-receipt-calls button:hover, .wb-receipt-calls button:focus-visible { border-color: #73c9bd; }
+.wb-receipt-calls small { flex: none; color: #adcbc7; }
+.wb-receipt-calls .partial small, .wb-receipt-calls .needs_input small { color: #edc07f; }
+.wb-receipt-calls .failed small { color: #ffab9c; }

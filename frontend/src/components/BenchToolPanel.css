@@ -1,0 +1,37 @@
+.optical-bench { --bench-tool-width: clamp(17rem, 27%, 29rem); }
+.bench-loading { min-height:clamp(9rem,22dvh,15rem); box-sizing:border-box; background:#111f28;
+  border:1px solid #344a52; border-radius:.75rem; padding:1rem 1.2rem; color:#ceeddf; }
+.bench-loading h2 { margin:0; font-size:1.05rem; }
+.bench-loading p { color:#cad8df; }
+.optical-bench .bench-toolbar { position:relative; z-index:3; }
+.optical-bench .bench-tool-body {
+  position:absolute; z-index:2; top:100%; right:0; width:var(--bench-tool-width);
+  box-sizing:border-box; max-height:var(--panel-available,60dvh); overflow:auto; overscroll-behavior:contain;
+  background:#15262f; color:#e0edef; border:1px solid #4a656e; border-radius:0 0 .6rem .6rem;
+  padding:0 .8rem .75rem; box-shadow:-.25rem .5rem 1.1rem #06131a59; scrollbar-gutter:stable;
+}
+.bench-tool-body:focus-visible { outline:2px solid #9ad6c5; outline-offset:-2px; }
+.bench-tool-body :is(input:not([type="checkbox"]),select,textarea) {
+  box-sizing:border-box; color:#e0edef; background:#10202a; border:1px solid #4c636d;
+  border-radius:.35rem; padding:.42rem .5rem; font:inherit;
+}
+.bench-tool-heading { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; align-items:center;
+  gap:.6rem; padding:.55rem 0; background:#15262f; border-bottom:1px solid #38515a; font-size:.91rem; }
+.bench-tool-heading button { cursor:pointer; color:#c9ebdf; border:1px solid #54726f; background:#1d343b;
+  border-radius:.3rem; padding:.3rem .55rem; font:inherit; }
+.bench-tool-body .library-body { max-width:none; margin-top:.6rem; }
+.bench-tool-body .library-fields { grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr)); }
+@media(min-width:761px) {
+  .optical-bench:has(.bench-tool[open]) :is(.bench-content,.network-bench) {
+    grid-template-columns:minmax(0,1fr) var(--bench-tool-width);
+  }
+  .optical-bench:has(.bench-tool[open]) :is(.bench-inspector,.network-inspector-pane) { visibility:hidden; }
+  .optical-bench .bench-tool-body { height:var(--panel-available,60dvh); }
+}
+@media(max-width:760px) {
+  .optical-bench .bench-tool-body {
+    position:fixed; z-index:16; inset:auto 0 var(--panel-bottom,0); width:auto; max-height:var(--panel-mobile-height,45dvh);
+    border-radius:.65rem .65rem 0 0; padding-bottom:max(.75rem,env(safe-area-inset-bottom));
+  }
+  .optical-bench .bench-toolbar:has(.bench-tool[open]) { z-index:16; }
+}

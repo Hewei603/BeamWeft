@@ -93,3 +93,11 @@ async def test_list_generated_contents(client):
     data = response.json()
     assert len(data) == 1
     assert data[0]["content_type"] == "plan"
+
+    next_plan = client.post(f"/api/cases/{case_id}/generate-plan").json()
+    endpoint = f"/api/cases/{case_id}/generated-contents"
+    latest = client.get(endpoint, params={"content_type": "plan", "limit": 1})
+    assert latest.status_code == 200
+    assert [row["id"] for row in latest.json()] == [next_plan["id"]]
+    assert len(client.get(endpoint).json()) == 3
+    assert client.get(endpoint, params={"limit": 0}).status_code == 422

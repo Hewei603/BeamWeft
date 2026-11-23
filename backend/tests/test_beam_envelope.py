@@ -5,8 +5,12 @@ These pin the two conventions that are easy to get silently wrong: the local
 refractive index (forgetting it inflates w by sqrt(n) with no error raised) and
 the difference between the reduced and the physical waist position.
 """
+import math
+
+import pytest
+
 from app.physics import beam as B
-from app.physics.toolkit import _analyze_length, _cavity_elements, beam_envelope
+from app.physics.toolkit import _FLAT_ROC_MM, _analyze_length, _cavity_elements, beam_envelope, run_cavity_design
 
 CRYSTAL = {"n": 1.8147, "thickness_mm": 20, "position_mm": 40}
 
@@ -85,6 +89,7 @@ def test_unstable_cavity_yields_no_envelope_rather_than_a_misleading_one():
     env = beam_envelope(2500.0, 1000.0, 1000.0, 1064.0, None)
     assert env["points"] == []
     assert env["waist"] is None
+    assert env["waist_location"] == "no_confined_mode"
     assert "不稳定" in env["note"]
 
 
@@ -96,3 +101,44 @@ def test_envelope_spans_the_whole_cavity_and_declares_the_cold_cavity_caveat():
     assert abs(env["points"][-1]["z_mm"] - length) < 1e-6
     # The recommendation is ranked by thermal-lens margin; the picture is not.
     assert "冷腔" in env["note"]
+
+
+@pytest.mark.parametrize("flat_at_m2", [False, True])
+@pytest.mark.parametrize("thickness", [0, 20])
+def test_plane_mirror_waist_in_air_or_touching_a_dielectric(flat_at_m2, thickness):
+    length, curved_roc, n, wavelength = 50, 100, 1.8, 1064
+    # With a flat-ended cavity the wavefront is plane at that mirror and
+    # z_R^2 = L_eff (R-L_eff) in air. A parallel plate replaces t by t/n.
+    mirror_z = length if flat_at_m2 else 0
+    slab = {"n": n, "thickness_mm": thickness, "position_mm": length-thickness if flat_at_m2 else 0} if thickness else None
+    effective = length - thickness + thickness/n
+    expected_w = math.sqrt(wavelength * 1e-6 * math.sqrt(effective*(curved_roc-effective)) / math.pi)
+    r1, r2 = (curved_roc, _FLAT_ROC_MM) if flat_at_m2 else (_FLAT_ROC_MM, curved_roc)
+    record = run_cavity_design({"L_mm": length, "R1_mm": r1, "R2_mm": r2, "crystal": slab, "wavelength_nm": wavelength})
+    for envelope in (record["beam_envelope"], beam_envelope(length, r1, r2, wavelength, slab, samples=8)):
+        assert envelope["waist_location"] == "inside"
+        assert envelope["waist"]["z_mm"] == mirror_z
+        assert envelope["waist"]["in_medium_n"] == (n if slab else 1)
+        assert envelope["waist"]["w0_mm"] == pytest.approx(expected_w, abs=5e-7)
+        assert envelope["points"][-1 if flat_at_m2 else 0]["w_mm"] == envelope["waist"]["w0_mm"]
+
+
+@pytest.mark.parametrize(("entrance","waist_z"), [(45, 45), (35, 55)])
+def test_waist_on_dielectric_face_is_independent_of_sampling(entrance, waist_z):
+    slab = {"n": 2, "position_mm": entrance, "thickness_mm": 20}
+    for samples in (8, 180, 331):
+        e = beam_envelope(100, 300, 300, 1064, slab, samples)
+        assert e["waist_location"] == "inside"
+        assert e["waist"]["z_mm"] == waist_z
+        assert any(p["z_mm"] == waist_z and p["w_mm"] == e["waist"]["w0_mm"] for p in e["points"])
+
+
+@pytest.mark.parametrize(("r1", "r2"), [(-100, 100), (100, -100), (-1e16, 100), (100, -1e16)])
+def test_virtual_waist_stays_outside_even_when_mirror_is_almost_plane(r1, r2):
+    result = run_cavity_design({"L_mm": 50, "R1_mm": r1, "R2_mm": r2, "wavelength_nm": 1064})
+    assert result["analysis"]["stable"] and result["analysis"]["waist_w0_mm"] > 0
+    e = result["beam_envelope"]
+    assert e["waist_location"] == "outside" and e["waist"] is None and e["points"]
+    if -100 in (r1, r2):
+        assert min(p["w_mm"] for p in e["points"]) == pytest.approx(.139835, abs=1e-6)
+        assert result["analysis"]["waist_w0_mm"] == pytest.approx(.12110, abs=1e-5)

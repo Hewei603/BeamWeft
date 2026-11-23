@@ -1,6 +1,6 @@
 # RAG Operations and Evaluation
 
-LaserClaw supports a deterministic local retriever and optional production-oriented vector retrieval paths.
+BeamWeft supports a deterministic local retriever and optional production-oriented vector retrieval paths.
 
 ## Retrieval Modes
 

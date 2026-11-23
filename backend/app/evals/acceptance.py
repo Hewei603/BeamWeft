@@ -37,7 +37,7 @@ def validate_eval_report(report: dict[str, Any]) -> dict[str, Any]:
 
 def fetch_latest_github_ci_run(repo: str, *, branch: str = "main", workflow_name: str = "CI") -> dict[str, Any]:
     url = f"https://api.github.com/repos/{repo}/actions/runs?branch={branch}&per_page=20"
-    request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "LaserClaw-acceptance-audit"})
+    request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "BeamWeft-acceptance-audit"})
     with urlopen(request, timeout=20) as response:
         payload = json.loads(response.read().decode("utf-8"))
     for run in payload.get("workflow_runs", []):

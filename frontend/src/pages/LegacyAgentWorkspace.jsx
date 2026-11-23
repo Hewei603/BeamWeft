@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { agentApi } from '../api/agent';
 import { casesApi } from '../api/cases';
 import { knowledgeApi } from '../api/knowledge';
 import { useLanguage } from '../LanguageContext';
+import { CaseSelect } from '../components/CaseBrowser';
 
 function AgentWorkspace() {
   const { t } = useLanguage();
-  const [cases, setCases] = useState([]);
+  const [caseRecord, setCaseRecord] = useState(null);
   const [caseId, setCaseId] = useState('');
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -29,7 +30,6 @@ function AgentWorkspace() {
   }, []);
 
   useEffect(() => {
-    casesApi.list().then(setCases).catch((err) => setError(err.message));
     loadGlobalSources();
   }, []);
 
@@ -99,10 +99,13 @@ function AgentWorkspace() {
     }
   };
 
-  const selectedCase = useMemo(
-    () => cases.find((item) => String(item.id) === String(caseId)),
-    [cases, caseId],
-  );
+  useEffect(() => {
+    let current = true;
+    if (caseId) casesApi.get(caseId).then(item => { if (current) setCaseRecord(item); })
+      .catch(err => { if (current) setError(err.message); });
+    return () => { current = false; };
+  }, [caseId]);
+  const selectedCase = caseRecord?.id === Number(caseId) ? caseRecord : null;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -144,16 +147,12 @@ function AgentWorkspace() {
           <Link to={caseId ? `/cases/${caseId}` : '/cases/new'} className="btn btn-primary">进入实验设计工作区 →</Link>
         </div>
         <label className="form-label" htmlFor="agent-case">{t('agentPage.caseContext')}</label>
-        <select id="agent-case" value={caseId} disabled={running || loadingSession} onChange={(event) => changeCase(event.target.value)}>
-          <option value="">{t('agentPage.noCase')}</option>
-          {cases.map((item) => (
-            <option key={item.id} value={item.id}>{item.title}</option>
-          ))}
-        </select>
+        <CaseSelect id="agent-case" value={caseId} onChange={changeCase} disabled={running || loadingSession}
+          label={t('agentPage.caseContext')} emptyLabel={t('agentPage.noCase')}/>
         {selectedCase && (
           <div className="agent-context">
             <strong>{selectedCase.title}</strong>
-            <span className="meta-pill">{selectedCase.cavity_type}</span>
+            {selectedCase.cavity_type !== 'custom' && <span className="meta-pill">{t('cavityTypes.' + selectedCase.cavity_type)}</span>}
             <p>{selectedCase.goal}</p>
             <Link to={`/cases/${selectedCase.id}`} className="btn btn-secondary">{t('agentPage.openCase')}</Link>
           </div>
@@ -182,7 +181,7 @@ function AgentWorkspace() {
         <div className="chat-stream">
           {messages.map((item, index) => (
             <article key={`${item.role}-${index}`} className={`chat-message ${item.role}`}>
-              <span>{item.role === 'user' ? t('agentPage.you') : 'LaserClaw'}</span>
+              <span>{item.role === 'user' ? t('agentPage.you') : 'BeamWeft'}</span>
               <p>{item.text}</p>
               {(item.routedMode || item.task) && (
                 <div className="chat-meta">

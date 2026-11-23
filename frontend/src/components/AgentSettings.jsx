@@ -1,8 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getAgentSettings, saveAgentSettings, getCodexStatus, testCodexConnection } from '../api/settings';
 import { useLanguage } from '../LanguageContext';
 
-export default function AgentSettings() {
+const legacyCodexEfforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
+export function AgentRunProfile({profile}) {
+  const {t} = useLanguage();
+  if (!profile.model) return null;
+  const effort = profile.reasoning_effort === 'auto' ? t('agentSettings.autoEffort') : profile.reasoning_effort;
+  return <p className="wb-agent-profile">{t('agentSettings.runModel')} {profile.provider} · {profile.model}
+    {effort && <> · {t('agentSettings.codexReasoning')} {effort}</>}</p>;
+}
+
+export function AgentSettingsLauncher({children, className}) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" aria-haspopup="dialog" className={className} onClick={() => setOpen(true)}>
+      {children || t('agentSettings.open')}
+    </button>
+    {open && createPortal(<AgentSettings onDismiss={() => setOpen(false)} />, document.body)}
+  </>;
+}
+
+export default function AgentSettings({onDismiss}) {
   const { t } = useLanguage();
   const [config, setConfig] = useState(null);
   const [provider, setProvider] = useState('mock');
@@ -22,6 +44,11 @@ export default function AgentSettings() {
   const [checking, setChecking] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState('');
+  const dialog = useRef(null);
+
+  useEffect(() => {
+    if (dialog.current && !dialog.current.open) dialog.current.showModal();
+  }, []);
 
   const selectProvider = (data, name) => {
     const option = data.providers.find((item) => item.id === name);
@@ -36,7 +63,7 @@ export default function AgentSettings() {
     setTestResult('');
     setCodexPath(data.codex_exec?.configured_path || '');
     setTimeoutValue(data.codex_exec?.timeout_seconds || 300);
-    setReasoning(data.codex_exec?.reasoning_effort || 'medium');
+    setReasoning(option?.reasoning_effort || (name === 'codex_exec' ? data.codex_exec?.reasoning_effort || 'medium' : 'auto'));
   };
 
   useEffect(() => {
@@ -57,6 +84,9 @@ export default function AgentSettings() {
   const current = config?.providers.find((item) => item.id === config.provider);
   const demo = config?.status.is_mock;
   const codex = provider === 'codex_exec';
+  const efforts = option?.reasoning_efforts || (codex ? legacyCodexEfforts : []);
+  const currentEffort = current?.reasoning_effort || (current?.id === 'codex_exec' ? config?.codex_exec?.reasoning_effort : null);
+  const effortLabel = (value) => value === 'auto' ? t('agentSettings.autoEffort') : value;
   const busy = saving || testing || checking;
   const edit = (setter) => (event) => {
     setter(event.target.value);
@@ -67,8 +97,9 @@ export default function AgentSettings() {
 
   const payload = () => ({
     provider, model: model.trim(),
+    ...(efforts.length ? { reasoning_effort: reasoning } : {}),
     ...(codex ? {
-      executable_path: codexPath.trim(), timeout_seconds: Number(timeout), reasoning_effort: reasoning,
+      executable_path: codexPath.trim(), timeout_seconds: Number(timeout),
     } : {
       ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
       ...(option?.base_url !== null && baseUrl.trim() ? { base_url: baseUrl.trim() } : {}),
@@ -120,19 +151,20 @@ export default function AgentSettings() {
     }
   };
 
-  return (
-    <section className="agent-settings" aria-labelledby="agent-settings-title">
+  const form = (
+    <section id="agent-settings" tabIndex={-1} className="agent-settings" aria-labelledby="agent-settings-title">
       <div className="agent-settings-heading">
         <div>
-          <div className="agent-settings-eyebrow">AGENT SETTINGS</div>
           <h2 id="agent-settings-title">{t('agentSettings.title')}</h2>
-          <p className="agent-settings-hint">{t('agentSettings.description')}</p>
+          <p className="agent-settings-hint">{t(onDismiss ? 'agentSettings.newTaskScope' : 'agentSettings.description')}</p>
         </div>
         {config && (
           <span className={`agent-settings-status${demo || config.status.error ? ' is-demo' : ''}`}>
             {demo ? t('agentSettings.demo') : config.status.error ? t('agentSettings.unavailable') : t('agentSettings.configured')}
           </span>
         )}
+        {onDismiss && <button type="button" className="btn btn-secondary agent-settings-close"
+          disabled={busy} onClick={() => dialog.current.close()}>{t('agentSettings.close')}</button>}
       </div>
 
       {loading && <p role="status">{t('common.loading')}</p>}
@@ -164,19 +196,30 @@ export default function AgentSettings() {
                   ))}
                 </select>
               </div>}
-              {provider !== 'mock' && (
+            </div>
+            {provider !== 'mock' && <div className="agent-settings-grid">
                 <div>
                   <label className="form-label" htmlFor="agent-model">{t('agentSettings.model')}</label>
-                  <input id="agent-model" className="form-input" list="agent-model-options" value={model}
+                  <div className="agent-model-picker"><input id="agent-model" className="form-input" value={model}
                     onChange={edit(setModel)} required maxLength={200} autoComplete="off"
                     aria-describedby="agent-model-hint" />
-                  <datalist id="agent-model-options">
-                    {option?.models.map((name) => <option key={name} value={name} />)}
-                  </datalist>
+                  {option?.models?.length > 0 && <span className="agent-model-options"><span aria-hidden="true">▾</span>
+                    <select aria-label={t('agentSettings.suggestedModels')} title={t('agentSettings.suggestedModels')}
+                    value={option.models.includes(model) ? model : ''} onChange={edit(setModel)}>
+                    <option value="" disabled>{t('agentSettings.suggestedModels')}</option>
+                    {option.models.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select></span>}</div>
                   <p className="agent-settings-hint" id="agent-model-hint">{t(codex ? 'agentSettings.codexModelHint' : 'agentSettings.modelHint')}</p>
                 </div>
-              )}
-            </div>
+                {efforts.length > 0 && <div>
+                  <label className="form-label" htmlFor="agent-reasoning">{t('agentSettings.codexReasoning')}</label>
+                  <select id="agent-reasoning" className="form-select" value={reasoning} onChange={edit(setReasoning)}
+                    aria-describedby="agent-reasoning-hint">
+                    {efforts.map(value => <option key={value} value={value}>{effortLabel(value)}</option>)}
+                  </select>
+                  <p className="agent-settings-hint" id="agent-reasoning-hint">{t('agentSettings.effortHint')}</p>
+                </div>}
+            </div>}
 
             {codex ? (
               <div className="agent-settings-cli">
@@ -199,12 +242,6 @@ export default function AgentSettings() {
                       <label className="form-label" htmlFor="agent-codex-timeout">{t('agentSettings.codexTimeout')}</label>
                       <input id="agent-codex-timeout" className="form-input" type="number" min={30} max={1800}
                         step={1} required value={timeout} onChange={edit(setTimeoutValue)} />
-                    </div>
-                    <div>
-                      <label className="form-label" htmlFor="agent-codex-reasoning">{t('agentSettings.codexReasoning')}</label>
-                      <select id="agent-codex-reasoning" className="form-select" value={reasoning} onChange={edit(setReasoning)}>
-                        {['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map((value) => <option key={value} value={value}>{value}</option>)}
-                      </select>
                     </div>
                   </div>
                 </details>
@@ -254,7 +291,7 @@ export default function AgentSettings() {
               <button className="btn btn-primary home-btn" type="submit" disabled={busy}>
                 {saving ? t('common.saving') : t('agentSettings.save')}
               </button>
-              <span className="agent-settings-hint">{t('agentSettings.current')} {current?.label || config.provider}{current?.model ? ` · ${current.model}` : ''}</span>
+              <span className="agent-settings-hint">{t('agentSettings.current')} {[current?.label || config.provider, current?.model, currentEffort && effortLabel(currentEffort)].filter(Boolean).join(' · ')}</span>
             </div>
           </fieldset>
           {saved && <p className="agent-settings-success" role="status">{t(codex ? 'agentSettings.codexSaved' : 'agentSettings.saved')}</p>}
@@ -263,4 +300,7 @@ export default function AgentSettings() {
       )}
     </section>
   );
+  return onDismiss ? <dialog ref={dialog} className="agent-settings-dialog" aria-labelledby="agent-settings-title"
+    onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation(); }}
+    onCancel={event => { if (busy) event.preventDefault(); }} onClose={onDismiss}>{form}</dialog> : form;
 }

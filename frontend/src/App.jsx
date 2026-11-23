@@ -1,44 +1,55 @@
-import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Link, Route, Routes } from 'react-router-dom';
-import apiClient from './api/client';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import { BrowserRouter as Router, Link, Route, Routes, useLocation } from 'react-router-dom';
+import apiClient, { nativeFileSource } from './api/client';
 import AgentWorkspace from './pages/AgentWorkspace';
-import CaseDetail from './pages/CaseDetail';
 import CaseForm from './pages/CaseForm';
 import CasesList from './pages/CasesList';
 import Home from './pages/Home';
-import InventoryPage from './pages/InventoryPage';
-import LiteraturePage from './pages/LiteraturePage';
-import LabDocuments from './pages/LabDocuments';
+import {AgentSettingsLauncher} from './components/AgentSettings';
 import { LanguageProvider, useLanguage } from './LanguageContext';
 import { EXPECTED_BACKEND_VERSION } from './expectedBackend';
 import './App.css';
+import AppMenu from './components/AppMenu';
 import './print.css';
-import logo from './assets/logo.png';
+import { productName } from './brand';
 
-function NavBar() {
-  const { lang, setLang, t } = useLanguage();
-  return (
-    <nav className="navbar">
-      <div className="nav-container">
-        <img src={logo} alt="LaserClaw Logo" className="logo" />
-        <div className="nav-links">
-          <Link to="/">{t('nav.home')}</Link>
-          <Link to="/agent">{t('nav.agent')}</Link>
-          <Link to="/cases">{t('nav.cases')}</Link>
-          <Link to="/cases/new">{t('nav.newCase')}</Link>
-          <Link to="/lab-documents">{t('nav.labDocs')}</Link>
-          <Link to="/inventory">{t('nav.inventory')}</Link>
-          <Link to="/literature">{t('nav.literature')}</Link>
-          <button
-            className="lang-toggle"
-            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-          >
-            {lang === 'zh' ? 'EN' : '中文'}
-          </button>
-        </div>
-      </div>
-    </nav>
-  );
+const CaseDetail = lazy(() => import('./pages/CaseDetail'));
+const InventoryPage = lazy(() => import('./pages/InventoryPage'));
+const LiteraturePage = lazy(() => import('./pages/LiteraturePage'));
+const LabDocuments = lazy(() => import('./pages/LabDocuments'));
+
+class PageLoadBoundary extends React.Component {
+  state = {failed:false};
+  static getDerivedStateFromError() { return {failed:true}; }
+  render() {
+    return this.state.failed ? <div className="error" role="alert">{this.props.message} <button
+      className="btn btn-secondary" onClick={() => window.location.reload()}>{this.props.retry}</button></div> : this.props.children;
+  }
+}
+
+function PageContent({children}) {
+  const {t}=useLanguage();
+  const {pathname}=useLocation();
+  const homeTitle = productName + ' · ' + t('home.title');
+  const file = nativeFileSource && /^\/cases\/(\d+)(?:\/edit)?\/?$/.exec(pathname)?.[1] === nativeFileSource.caseId
+    ? nativeFileSource : null;
+  useEffect(() => {
+    const title = file ? file.label + ' · ' + productName + ' · ' + file.path : homeTitle;
+    document.title = title;
+    if (!file) return;
+    // Browser print headers can include the window title.
+    const beforePrint = () => {document.title = homeTitle;};
+    const afterPrint = () => {document.title = title;};
+    window.addEventListener('beforeprint', beforePrint);
+    window.addEventListener('afterprint', afterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', beforePrint);
+      window.removeEventListener('afterprint', afterPrint);
+    };
+  }, [file, homeTitle]);
+  return <PageLoadBoundary key={pathname} message={t('library.pageError')} retry={t('library.retry')}>
+    <Suspense fallback={<p role="status">{t('common.loading')}</p>}>{children}</Suspense>
+  </PageLoadBoundary>;
 }
 
 function FooterText() {
@@ -48,6 +59,7 @@ function FooterText() {
 
 function ProviderBanner() {
   const { t } = useLanguage();
+  const { pathname } = useLocation();
   const [provider, setProvider] = useState(null);
   const [backendVersion, setBackendVersion] = useState(undefined); // undefined = not yet answered
 
@@ -100,8 +112,9 @@ function ProviderBanner() {
     return (
       <>
         {versionBanner}
-        <div className="disclaimer" style={{ margin: '0.5rem 1rem' }}>
-          ⚠ {t('banner.demo')}
+        <div className="disclaimer provider-notice">
+          <span>{t('banner.demoWorkbench')}</span> {pathname === '/' ? <Link to="/#agent-settings">{t('banner.configure')}</Link>
+            : <AgentSettingsLauncher className="provider-settings-link">{t('banner.configure')}</AgentSettingsLauncher>}
         </div>
       </>
     );
@@ -114,10 +127,10 @@ function App() {
     <LanguageProvider>
       <Router>
         <div className="app">
-          <NavBar />
+          <AppMenu />
           <ProviderBanner />
           <main className="main-content">
-            <Routes>
+            <PageContent><Routes>
               <Route path="/" element={<Home />} />
               <Route path="/agent" element={<AgentWorkspace />} />
               <Route path="/cases" element={<CasesList />} />
@@ -127,7 +140,7 @@ function App() {
               <Route path="/lab-documents" element={<LabDocuments />} />
               <Route path="/inventory" element={<InventoryPage />} />
               <Route path="/literature" element={<LiteraturePage />} />
-            </Routes>
+            </Routes></PageContent>
           </main>
           <footer className="footer">
             <FooterText />

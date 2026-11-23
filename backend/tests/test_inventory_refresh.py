@@ -20,6 +20,19 @@ def _items(client):
     return client.get("/api/inventory/items").json()
 
 
+def test_manual_edit_round_trips_imported_unclassified_crystal_and_surface_spec(client):
+    imported = _upload(client, [("待鉴定晶体", "", 1, "rack C")])
+    assert imported.status_code == 200, imported.text
+    item, = _items(client)
+    assert item["category"] == "crystal_other"
+    response = client.patch(f"/api/inventory/items/{item['id']}",json={"vendor":"maker C","cut_angle_phi_deg":251.25})
+    assert response.status_code == 200, response.text
+    corrected = response.json()
+    assert corrected["category"] == "crystal_other" and corrected["cut_angle_phi_deg"] == 251.25
+    assert corrected["diameter_mm"] == item["diameter_mm"]
+    assert corrected["raw_spec"] == item["raw_spec"]
+
+
 def _damage_with_history(client, item):
     loan = client.post(f"/api/inventory/items/{item['id']}/borrow",
                        json={"borrower_name": "Test borrower", "quantity": 1}).json()
@@ -110,3 +123,71 @@ def test_invalid_workbook_does_not_change_existing_inventory(client):
     assert response.status_code == 400
     assert _items(client) == before
     assert len(client.get("/api/inventory/loans?open_only=false").json()) == 1
+
+
+def test_refresh_preserves_superseded_main_and_variant_only_arm_bindings(client, db):
+    from copy import deepcopy
+
+    from app.models import ExperimentCase
+    from app.workbench.projects import SaveProject, read_project, save_project
+    from app.workbench.study_inputs import WorkingDraft, capture_snapshot
+
+    rows = [("Mirror A", "R=200mm", 1, "shelf A"), ("Mirror B", "R=100mm", 1, "shelf B"),
+            ("Window", "", 8, "shelf W")]
+    assert _upload(client, rows).status_code == 200
+    original = {item["name"]: item for item in _items(client)}
+    case = ExperimentCase(title="Stock record history", goal="Track independent hardware", cavity_type="other", parameters={})
+    db.add(case)
+    db.commit()
+    model = {"title":"folded relay","system":{"mode":"single_pass","wavelength_nm":633,"elements":[
+        {"kind":"space","name":"lead in","uid":"gap","length_mm":20},
+        {"kind":"mirror","name":"turn","uid":"turn","radius_mm":200}]},
+        "parts":[{"element_index":1,"inventory_id":original["Mirror A"]["id"],"source":"stockroom tag"}]}
+    older = save_project(db,case.id,SaveProject(project=model,change_note="installed A"))
+    model["parts"] = []
+    current = save_project(db,case.id,SaveProject(project=model,base_revision_id=older["revision_id"],change_note="removed mirror"))
+    model["incident_paths"] = [{"uid":"alignment","name":"alignment arm","target_uid":"gap","target_n":1,"wavelength_nm":633,
+        "tangential":{"radius_mm":0.2,"wavefront":"waist","m2":1},
+        "elements":[{"kind":"mirror","uid":"fold","name":"turn B","radius_mm":100}],
+        "parts":[{"element_index":0,"inventory_id":original["Mirror B"]["id"],"source":"read on back of optic"}]}]
+    variant = capture_snapshot(db,case.id,WorkingDraft(project=model,source_revision_id=current["revision_id"],
+        base_revision_id=current["revision_id"]),variant_name="alignment arm")
+    db.commit()
+    snapshots = {r["revision_id"]:deepcopy(read_project(db,case.id,r["revision_id"])) for r in (older,current,variant)}
+
+    # A logistics row would be modified in the same import, before the ambiguous
+    # row is noticed. A failure must roll back both that row and newly staged ones.
+    for changed in ("Mirror A","Mirror B"):
+        edited = [("Window","",3,"new shelf"),("New Lens", "", 1, "N")]
+        edited.extend((name,"R=400mm" if name==changed else roc,qty,location) for name,roc,qty,location in rows[:2])
+        response = _upload(client,edited)
+        assert response.status_code == 409 and f"#{original[changed]['id']}" in response.text
+        assert {i["name"]:i for i in _items(client)} == original
+    # Actually removing the rows retires the stock, without deleting a version's source.
+    assert _upload(client,[rows[-1]]).status_code == 200
+    after = {i["name"]:i for i in _items(client)}
+    for name in ("Mirror A","Mirror B"):
+        assert after[name]["id"] == original[name]["id"] and after[name]["quantity"] == 0
+    for revision, snapshot in snapshots.items():
+        assert read_project(db,case.id,revision) == snapshot
+    assert _upload(client,list(reversed(rows))).status_code == 200
+    restored = {i["name"]:i for i in _items(client)}
+    assert all((row["id"], row["quantity"]) == (original[name]["id"], original[name]["quantity"]) for name,row in restored.items())
+
+
+def test_exact_workbook_refresh_keeps_curated_sections_and_their_source_notes(client):
+    rows = [("Nd:YAG specimen", "", 2, "Shelf A")]
+    assert _upload(client,rows).status_code == 200
+    item, = _items(client)
+    url = f"/api/inventory/items/{item['id']}"
+    spec = {"overall_length_mm":9, "material_label":"specimen certificate",
+            "segments":[{"length_mm":4, "material":"Nd:YAG","role":"gain","doping_pct":0.7},
+                        {"length_mm":5, "note":"Visible joint; unidentified substrate", "uncertain":True}]}
+    saved = client.patch(url,json={"crystal_spec":spec,"dimensions":"9 mm body, clear opening 2.2 mm"}).json()
+    assert saved["crystal_spec"]["segments"][0]["doping_pct"] == 0.7
+    assert _upload(client,[("Nd:YAG specimen", "", 4, "Shelf D")]).status_code == 200
+    updated = client.get(url).json()
+    for key in ("crystal_spec","material","dimensions","thickness_mm","doping_pct"):
+        assert updated[key] == saved[key]
+    assert set(saved["parse_notes"]).issubset(updated["parse_notes"])
+    assert updated["location"] == "Shelf D" and updated["quantity"] == 4

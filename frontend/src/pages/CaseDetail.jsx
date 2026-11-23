@@ -1,13 +1,60 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '../api/agent';
-import { API_BASE_URL } from '../api/client';
+import { API_BASE_URL, nativeFileSource, openedCase } from '../api/client';
 import { casesApi } from '../api/cases';
 import { knowledgeApi } from '../api/knowledge';
-import { ModuleResult, PhysicsFactsBlock } from '../components/ModuleResults';
+import { workbenchApi } from '../api/workbench';
+import { deferredPanel } from '../components/deferredPanel';
 import ModuleConfigForm, { buildModuleConfig, configToFormValues, OWNED_KEYS } from '../components/ModuleConfigForm';
 import { useLanguage } from '../LanguageContext';
+import { ModuleFile } from '../components/ModuleFile';
 import ExperimentWorkbench from '../components/ExperimentWorkbench';
+import { ArchiveList, FilePreview, FileUpload, fileModeLabels } from '../components/CaseFiles';
+import BeamStudy from '../components/BeamStudy';
+import StudyUsage from '../components/StudyUsage';
+import { useCaseRead } from './useCaseRead';
+import { ProjectFileActions, nativeFileId } from '../components/ProjectFile';
+import { transfersFor } from '../components/archiveTransfers';
+
+const readLatest = (caseId, type) => casesApi.getGeneratedContents(caseId, type, 1);
+const loadModuleResults = () => import('../components/ModuleResults');
+const ModuleResult = deferredPanel(loadModuleResults, '模块计算结果', 'ModuleResult');
+const PhysicsFactsBlock = deferredPanel(loadModuleResults, '物理计算依据', 'PhysicsFactsBlock');
+
+function ReadStatus({ record, label }) {
+  if (record.error) return <div className="error" role="alert">
+    <p>{label}读取失败。{record.error}</p>
+    {record.data != null && <p>当前显示上次成功读取的记录。</p>}
+    <button className="btn btn-secondary" onClick={record.refresh}>重新读取{label}</button>
+  </div>;
+  if (record.pending && record.data == null) return <p className="muted" role="status">正在读取{label}…</p>;
+  return null;
+}
+
+function RemoveOriginal({file, onDeleted}) {
+  const { t } = useLanguage();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const remove = async () => {
+    if (!window.confirm(t('caseDetail.attachmentsTab.deleteConfirm') + '\n\n' +
+      (file.relative_path || file.filename) + ' · #' + file.id)) return;
+    setPending(true);
+    setError('');
+    try {
+      await casesApi.deleteAttachment(file.id);
+      onDeleted(file.id);
+    } catch (cause) {
+      setError(cause.message);
+    } finally {
+      setPending(false);
+    }
+  };
+  return <>
+    <button type="button" className="btn btn-danger" disabled={pending} onClick={remove}>{t('common.delete')}</button>
+    {error && <div className="error archive-delete-error" role="alert">{error}</div>}
+  </>;
+}
 
 function CaseDetail() {
   const { id } = useParams();
@@ -15,28 +62,58 @@ function CaseDetail() {
   const { t, te } = useLanguage();
 
   const tabs = [
-    ['plan', 'Agent 工作区'],
+    ['plan', '实验工作台'],
     ['overview', t('caseDetail.tabs.overview')],
+    ['attachments', '实验资料'],
+  ];
+  const advancedTabs = [
     ['troubleshooting', t('caseDetail.tabs.troubleshooting')],
     ['report', t('caseDetail.tabs.report')],
     ['knowledge', t('caseDetail.tabs.knowledge')],
     ['modules', t('caseDetail.tabs.modules')],
     ['agent', '旧版模块助手'],
-    ['attachments', t('caseDetail.tabs.attachments')],
   ];
   const caseId = Number(id);
 
-  const [caseData, setCaseData] = useState(null);
-  const [generatedContents, setGeneratedContents] = useState({});
+  const caseRecord = useCaseRead(caseId, casesApi.get);
+  const caseData = caseRecord.data;
+  const projectTitle = useRef(null);
+  const readyId = caseData?.id;
+  useEffect(() => {
+    if (readyId === caseId && document.activeElement === document.body) {
+      projectTitle.current?.focus({preventScroll:true});
+    }
+  }, [readyId, caseId]);
   const [attachments, setAttachments] = useState([]);
-  const [sources, setSources] = useState([]);
-  const [modules, setModules] = useState([]);
-  const [components, setComponents] = useState([]);
-  const [tasks, setTasks] = useState([]);
+  const [selectedFileIds, setSelectedFileIds] = useState([]);
+  const localReceipts = useRef(new Map());
+  const [previewId, setPreviewId] = useState(null);
+  const [archiveVisit,setArchiveVisit] = useState({key:0, fileId:null});
+  const [previewRequest,setPreviewRequest] = useState(0);
+  const [fileSelections] = useState(()=>new Map());
+  const composerActions = useRef(null);
+  const transfers = transfersFor(API_BASE_URL,caseId,caseData?.draft_scope);
   const [activeTab, setActiveTab] = useState('plan');
-  const [loading, setLoading] = useState(true);
+  const [artifactVersion, setArtifactVersion] = useState(0);
+  const ready = caseData != null;
+  const type = ['report', 'troubleshooting'].includes(activeTab) ? activeTab : null;
+  const projectRecord = useCaseRead(caseId, workbenchApi.getModelInput, ready && activeTab === 'overview');
+  const projectInfo = projectRecord.data;
+  const contentRecord = useCaseRead(caseId, readLatest, ready && !!type, type);
+  const readFiles = useCallback(async id => {
+    const confirmedBeforeRequest = [...localReceipts.current.keys()];
+    return {items:await casesApi.listAttachments(id), confirmedBeforeRequest};
+  }, []);
+  const filesRecord = useCaseRead(caseId, readFiles, ready);
+  const sourceRecord = useCaseRead(caseId, knowledgeApi.listSources, ready && activeTab === 'knowledge');
+  const taskRecord = useCaseRead(caseId, agentApi.listTasks, ready && activeTab === 'agent');
+  const moduleRecord = useCaseRead(caseId, casesApi.listModules, ready && activeTab === 'modules');
+  const partsRecord = useCaseRead(caseId, casesApi.listComponents, ready && activeTab === 'modules');
+  const modules = moduleRecord.data || [];
+  const components = partsRecord.data || [];
+  const sources = sourceRecord.data || [];
+  const tasks = taskRecord.data || [];
   const [generating, setGenerating] = useState({});
-  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [agentGoal, setAgentGoal] = useState('');
@@ -51,71 +128,32 @@ function CaseDetail() {
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
+  useEffect(() => { window.scrollTo(0, 0); }, [id]);
+  useEffect(() => transfers?.onArchived((item,composer) => {
+    localReceipts.current.set(item.id, item);
+    setAttachments(previous => previous.some(file => file.id === item.id) ? previous : [...previous, item]);
+    if (composer) setSelectedFileIds(previous => [...new Set([...previous,item.id])].slice(0,8));
+  }), [transfers]);
   useEffect(() => {
-    loadData();
-  }, [id]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [caseResult, contentsResult, attachmentsResult, sourcesResult, tasksResult, modulesResult, componentsResult] = await Promise.all([
-        casesApi.get(id),
-        casesApi.getGeneratedContents(id),
-        casesApi.listAttachments(id),
-        knowledgeApi.listSources(caseId),
-        agentApi.listTasks(caseId),
-        casesApi.listModules(id),
-        casesApi.listComponents(id),
-      ]);
-
-      const organized = {};
-      contentsResult.forEach((item) => {
-        organized[item.content_type] = organized[item.content_type] || [];
-        organized[item.content_type].push(item);
-      });
-
-      setCaseData(caseResult);
-      setGeneratedContents(organized);
-      setAttachments(attachmentsResult);
-      setSources(sourcesResult);
-      setModules(modulesResult);
-      // Pre-fill each module's form from its persisted config so the form
-      // always shows what a re-run would actually use. Only for modules the
-      // user hasn't started editing — never clobber in-progress input.
-      setModuleForms((prev) => {
-        const next = { ...prev };
-        modulesResult.forEach((m) => {
-          if (!(m.id in next)) {
-            next[m.id] = configToFormValues(m.module_type, m.config_json || {});
-          }
-        });
-        return next;
-      });
-      setComponents(componentsResult);
-      setTasks(tasksResult);
-      setError(null);
-    } catch (err) {
-      setError(t('caseDetail.loadFailed') + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!filesRecord.data) return;
+    const {items:listed, confirmedBeforeRequest} = filesRecord.data;
+    transfers?.reconcile(listed);
+    for (const id of confirmedBeforeRequest) localReceipts.current.delete(id);
+    for (const file of listed) localReceipts.current.delete(file.id);
+    const currentFiles = [...listed, ...localReceipts.current.values()];
+    const currentIds = new Set(currentFiles.map(file => file.id));
+    setAttachments(currentFiles);
+    setSelectedFileIds(previous => previous.filter(fileId => currentIds.has(fileId)));
+  }, [filesRecord.data, transfers]);
 
   const refreshArtifacts = async () => {
-    const [updatedCase, contents] = await Promise.all([casesApi.get(id), casesApi.getGeneratedContents(id)]);
-    const organized = {};
-    contents.forEach(item => {
-      organized[item.content_type] = organized[item.content_type] || [];
-      organized[item.content_type].push(item);
-    });
-    setCaseData(updatedCase);
-    setGeneratedContents(organized);
+    caseRecord.refresh();
+    contentRecord.refresh();
+    projectRecord.refresh();
+    setArtifactVersion(value => value + 1);
   };
 
-  const latest = (type) => {
-    const list = generatedContents[type] || [];
-    return list.length > 0 ? list[0] : null;
-  };
+  const savedForm = module => configToFormValues(module.module_type, module.config_json || {});
 
   const handleGenerate = async (type) => {
     setGenerating((prev) => ({ ...prev, [type]: true }));
@@ -123,7 +161,7 @@ function CaseDetail() {
       if (type === 'plan') await casesApi.generatePlan(id);
       if (type === 'troubleshooting') await casesApi.generateTroubleshooting(id);
       if (type === 'report') await casesApi.generateReport(id);
-      await loadData();
+      await refreshArtifacts();
     } catch (err) {
       setActionError(t('caseDetail.attachmentsTab.generateFailed') + err.message);
     } finally {
@@ -153,7 +191,8 @@ function CaseDetail() {
     try {
       await agentApi.createTask({ caseId, goal: agentGoal, mode: agentMode });
       setAgentGoal('');
-      await loadData();
+      taskRecord.refresh();
+      caseRecord.refresh();
       setActiveTab('agent');
     } catch (err) {
       setActionError(t('caseDetail.agentTab.taskFailed') + err.message);
@@ -162,26 +201,36 @@ function CaseDetail() {
     }
   };
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    try {
-      await casesApi.uploadAttachment(id, file);
-      event.target.value = '';
-      await loadData();
-    } catch (err) {
-      setActionError(t('caseDetail.attachmentsTab.uploadFailed') + err.message);
+  const openFiles = (fileId, selection) => {
+    setActiveTab('attachments');
+    if (Number.isInteger(fileId)) {
+      if (filesRecord.data && !attachments.some(item=>item.id===fileId)) {
+        setActionError('当前案例的资料清单中找不到原件 #'+fileId+'。可以回到相应任务或分析记录，查看当时保留的工具输入和结果。');
+        return;
+      }
+      if (selection) {
+        fileSelections.set(fileId, selection);
+        setPreviewRequest(n=>n+1);
+      }
+      setPreviewId(fileId);
+      setArchiveVisit(previous=>({key:previous.key+1,fileId}));
+      requestAnimationFrame(() => document.getElementById('case-file-'+fileId)?.scrollIntoView({block:'start'}));
     }
+  };
+  const quoteFile = (text, fileId) => {
+    setActiveTab('plan');
+    composerActions.current?.quote(text, {attachment_ids:[fileId]});
   };
 
   const handleAnalyzeAttachment = async (attachmentId) => {
     setAnalyzingAttachment(attachmentId);
     try {
       await casesApi.analyzeAttachment(attachmentId);
-      await loadData();
+      filesRecord.refresh();
+      await refreshArtifacts();
       setActiveTab('attachments');
     } catch (err) {
-      setActionError(t('caseDetail.attachmentsTab.uploadFailed') + err.message);
+      setActionError(t('caseDetail.actionFailed') + err.message);
     } finally {
       setAnalyzingAttachment(null);
     }
@@ -190,7 +239,7 @@ function CaseDetail() {
   const handleCreateModule = async () => {
     try {
       await casesApi.createModule(id, { module_type: newModuleType });
-      await loadData();
+      moduleRecord.refresh();
       setActiveTab('modules');
     } catch (err) {
       setActionError(t('caseDetail.actionFailed') + err.message);
@@ -203,7 +252,7 @@ function CaseDetail() {
     try {
       await casesApi.uploadModuleFile(moduleId, file);
       event.target.value = '';
-      await loadData();
+      moduleRecord.refresh();
     } catch (err) {
       setActionError(t('caseDetail.modulesTab.uploadFailed') + err.message);
     }
@@ -212,7 +261,7 @@ function CaseDetail() {
   const handleRunModule = async (module) => {
     // The typed form is the primary input; the advanced JSON textarea (if
     // filled) is merged over it so power users can still override anything.
-    const built = buildModuleConfig(module.module_type, moduleForms[module.id] || {});
+    const built = buildModuleConfig(module.module_type, moduleForms[module.id] ?? savedForm(module));
     if (built.errors.length > 0) {
       const labels = built.errors.map((k) => t(`caseDetail.modulesTab.form.${k}`)).join('、');
       setActionError(t('caseDetail.modulesTab.badFieldValue') + labels);
@@ -246,7 +295,8 @@ function CaseDetail() {
     setModuleRunning(module.id);
     try {
       await casesApi.runModule(module.id, { config_json: config });
-      await loadData();
+      moduleRecord.refresh();
+      partsRecord.refresh();
     } catch (err) {
       setActionError(t('caseDetail.modulesTab.runFailed') + err.message);
     } finally {
@@ -257,16 +307,10 @@ function CaseDetail() {
   const handleToggleOwned = async (item) => {
     try {
       await casesApi.updateComponent(item.id, { owned: !item.owned });
-      await loadData();
+      partsRecord.refresh();
     } catch (err) {
       setActionError(t('caseDetail.actionFailed') + err.message);
     }
-  };
-
-  const isImageAttachment = (attachment) => {
-    const type = attachment.file_type || '';
-    const name = attachment.filename || '';
-    return type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(name);
   };
 
   const handleDelete = async () => {
@@ -383,9 +427,9 @@ function CaseDetail() {
           </div>
           <ModuleConfigForm
             moduleType={module.module_type}
-            values={moduleForms[module.id] || {}}
+            values={moduleForms[module.id] ?? savedForm(module)}
             onChange={(key, value) => setModuleForms((prev) => (
-              { ...prev, [module.id]: { ...(prev[module.id] || {}), [key]: value } }
+              { ...prev, [module.id]: { ...(prev[module.id] ?? savedForm(module)), [key]: value } }
             ))}
           />
           <details>
@@ -402,15 +446,7 @@ function CaseDetail() {
           {module.files.length > 0 && (
             <div className="generated-section">
               <h3>{t('caseDetail.modulesTab.files')}</h3>
-              {module.files.map((file) => (
-                <div key={file.id} className="source-row">
-                  <span>{file.filename}</span>
-                  <div className="action-row">
-                    <span className="meta-pill">{file.file_role}</span>
-                    <a className="btn btn-secondary" href={casesApi.moduleFileUrl(file.id)} target="_blank" rel="noreferrer">{t('common.download')}</a>
-                  </div>
-                </div>
-              ))}
+              {module.files.map(file => <ModuleFile key={file.id} file={file}/>)}
             </div>
           )}
 
@@ -421,7 +457,7 @@ function CaseDetail() {
                 <a className="btn btn-secondary" href={casesApi.procurementUrl(id)} target="_blank" rel="noreferrer">{t('caseDetail.modulesTab.exportProcurement')}</a>
                 <a className="btn btn-secondary" href={casesApi.bomUrl(id)} target="_blank" rel="noreferrer" title={t('caseDetail.modulesTab.exportBomHint')}>{t('caseDetail.modulesTab.exportBom')}</a>
               </div>
-              {components.length === 0 ? <p>{t('caseDetail.modulesTab.noComponents')}</p> : components.map((item) => (
+              {partsRecord.data == null ? null : components.length === 0 ? <p>{t('caseDetail.modulesTab.noComponents')}</p> : components.map((item) => (
                 <div key={item.id} className="source-row">
                   <div>
                     <strong>{item.name}</strong>
@@ -521,7 +557,7 @@ function CaseDetail() {
   };
 
   const renderGenerated = (type) => {
-    const item = latest(type);
+    const item = contentRecord.data?.[0];
     if (!item) {
       return (
         <div className="card">
@@ -568,24 +604,49 @@ function CaseDetail() {
     );
   };
 
-  if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (error) return <div className="error">{error}</div>;
-  if (!caseData) return <div className="error">{t('caseDetail.notFound')}</div>;
+  if (!caseData) return <ReadStatus record={caseRecord} label="案例" />;
 
   return (
-    <div>
-      <div className="detail-header">
-        <div>
-          <h1>{caseData.title}</h1>
-          <p className="muted">{t('caseDetail.created')}{new Date(caseData.created_at).toLocaleString()}</p>
+    <div className="case-workspace">
+      <header className="detail-header case-project-bar">
+        <div className="case-project-name">
+          <h1 ref={projectTitle} tabIndex={-1}>{caseData.title}</h1>
+          {activeTab==='plan' && <a className="canvas-skip" href="#current-optical-canvas"
+            onClick={event=>{
+              const canvas=document.getElementById('current-optical-canvas') || document.querySelector('.wb-stage');
+              if (canvas) { event.preventDefault(); canvas.focus(); canvas.scrollIntoView({block:'nearest'}); }
+            }}>{t('nav.skipCanvas')}</a>}
+          {nativeFileSource?.caseId === String(id)
+            ? <details className="project-file-location muted">
+                <summary>{t('caseDetail.nativeOpened')} · <bdi>{nativeFileSource.label}</bdi></summary>
+                <p><bdi dir="auto">{nativeFileSource.path}</bdi></p>
+              </details>
+            : openedCase && <p className="muted" role="note">{t(String(id) === nativeFileId ? 'caseDetail.nativeOpened' : openedCase === 'legacy' ? 'caseDetail.legacyCopy' : 'caseDetail.localCopy')}</p>}
         </div>
+        <nav className="tab-row" aria-label="工程视图">
+          {tabs.map(([key, label]) => (
+            <button key={key} className={activeTab === key ? 'tab active' : 'tab'}
+              aria-current={activeTab === key ? 'page' : undefined} onClick={() => setActiveTab(key)}>{label}</button>
+          ))}
+          <label className="case-record-navigation">
+            <select aria-label="案例记录与高级工具" value={advancedTabs.some(([key]) => key === activeTab) ? activeTab : ''} onChange={event => { if (event.target.value) setActiveTab(event.target.value); }}>
+              <option value="">更多记录与工具</option>
+              {advancedTabs.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+        </nav>
         <div className="action-row">
-          <a href={casesApi.bundleUrl(id)} className="btn btn-secondary" target="_blank" rel="noreferrer">{t('caseDetail.exportBundle')}</a>
-          <Link to={`/cases/${id}/edit`} className="btn btn-secondary">{t('common.edit')}</Link>
-          <button onClick={handleDelete} className="btn btn-danger">{t('common.delete')}</button>
+          <ProjectFileActions id={id} title={caseData.title} createdAt={caseData.created_at}
+            editor={composerActions} transfers={transfers} onDelete={caseData.is_open_document ? undefined : handleDelete}
+            onRepairInput={()=>{setActiveTab('plan'); requestAnimationFrame(()=>composerActions.current?.focusEditor());}}/>
         </div>
-      </div>
+      </header>
 
+      {caseData.recovered_from && <details className="no-print project-file-location"><summary>{t('caseDetail.restoredFile')}</summary>
+        <p>{t('caseDetail.previousWorkspace')} <code>{caseData.recovered_from}</code></p></details>}
+      <ReadStatus record={caseRecord} label="案例" />
+      {activeTab === 'overview' && <ReadStatus record={projectRecord} label="当前工程记录" />}
+      {type && <ReadStatus record={contentRecord} label={type === 'report' ? '报告' : '排障记录'} />}
       {actionError && (
         <div className="error action-error">
           <span>{actionError}</span>
@@ -593,29 +654,21 @@ function CaseDetail() {
         </div>
       )}
 
-      <div className="tab-row">
-        {tabs.map(([key, label]) => (
-          <button key={key} className={activeTab === key ? 'tab active' : 'tab'} onClick={() => setActiveTab(key)}>
-            {label}
-          </button>
-        ))}
-      </div>
-
       {activeTab === 'overview' && (
         <div className="grid-2">
-          {latest('optical_project') && <section className="card case-current-project">
-            <div className="wb-row"><h2 className="card-title">当前光学工程 · #{latest('optical_project').id}</h2><button className="btn btn-secondary" onClick={() => setActiveTab('plan')}>前往 Agent 工作区</button></div>
-            <h3>{latest('optical_project').content.project.title}</h3>
-            <p>{latest('optical_project').content.change_note}</p>
+          {projectInfo?.project && <section className="card case-current-project">
+            <div className="wb-row"><h2 className="card-title">当前光学工程 · #{projectInfo.revision_id}</h2><button className="btn btn-secondary" onClick={() => setActiveTab('plan')}>前往实验工作台</button></div>
+            <h3>{projectInfo.project.title}</h3>
+            <p>{projectInfo.change_note}</p>
             <p className="field-note">此处为最新保存的计算模型，按该版本的假设解释；尚不能作为实测光路或已出光的证明。下方保留原始案例记录，后续更正以最新工程及对话为依据。</p>
-            <div className="table-scroll"><table className="mini-table"><thead><tr><th>光学元件 / 传播段</th><th>物理长度 / mm</th><th>折射率 n</th><th>曲率或焦距 / mm</th></tr></thead><tbody>{latest('optical_project').content.project.system.elements.map((element, index) => <tr key={element.uid || index}>
-              <td>{element.name}</td><td>{element.length_mm || 0}</td><td>{element.n || 1}</td><td>{element.kind === 'mirror' ? element.radius_mm == null ? '平面' : 'R=' + element.radius_mm : element.kind === 'lens' ? '空气等效 f=' + element.focal_mm : '—'}</td>
+            <div className="table-scroll"><table className="mini-table"><thead><tr><th>光学元件 / 传播段</th><th>物理长度 / mm</th><th>折射率 n</th><th>曲率或焦距 / mm</th></tr></thead><tbody>{projectInfo.project.system.elements.map((element, index) => <tr key={element.uid || index}>
+              <td>{element.name}</td><td>{element.length_mm || 0}</td><td>{element.n ?? '待补'}</td><td>{element.kind === 'mirror' ? element.radius_mm == null ? '平面' : 'R=' + element.radius_mm : element.kind === 'lens' ? '空气等效 f=' + element.focal_mm : '—'}</td>
             </tr>)}</tbody></table></div>
           </section>}
           <div className="card">
             <h2 className="card-title">{t('caseDetail.overview.basicInfo')}</h2>
             <p><strong>{t('caseDetail.overview.desc')}</strong>{caseData.description || t('caseDetail.overview.none')}</p>
-            <p><strong>{t('caseDetail.overview.cavity')}</strong>{caseData.cavity_type}</p>
+            {caseData.cavity_type && caseData.cavity_type !== 'custom' && <p><strong>{t('library.registered')} · {t('caseDetail.overview.cavity')}</strong>{t('cavityTypes.' + caseData.cavity_type)}</p>}
             <p><strong>{t('caseDetail.overview.goal')}</strong>{caseData.goal}</p>
             <p><strong>{t('caseDetail.overview.status')}</strong>{t(`caseStatus.${caseData.status}`) !== `caseStatus.${caseData.status}` ? t(`caseStatus.${caseData.status}`) : caseData.status}</p>
             <p><strong>{t('caseDetail.overview.visibility')}</strong>{te(caseData.visibility)}</p>
@@ -626,7 +679,7 @@ function CaseDetail() {
           </div>
           <div className="card">
             <h2 className="card-title">{t('caseDetail.overview.paramsSymptoms')}</h2>
-            <details open={!latest('optical_project') || undefined}><summary>{latest('optical_project') ? '原始案例参数（保留记录）' : t('caseDetail.overview.parameters')}</summary>
+            <details open={!projectInfo?.project || undefined}><summary>{projectInfo?.project ? '原始案例参数（保留记录）' : t('caseDetail.overview.parameters')}</summary>
             {Object.keys(caseData.parameters || {}).length === 0 ? <p className="muted">-</p> : (
               <table className="mini-table">
                 <tbody>
@@ -648,9 +701,9 @@ function CaseDetail() {
         </div>
       )}
 
-      {activeTab === 'plan' && <ExperimentWorkbench key={id} caseData={caseData} onArtifactsChanged={refreshArtifacts} />}
-      {activeTab === 'troubleshooting' && renderGenerated('troubleshooting')}
-      {activeTab === 'report' && renderGenerated('report')}
+      <div hidden={activeTab !== 'plan'}><ExperimentWorkbench key={id} caseData={caseData} caseFiles={attachments} fileListReady={filesRecord.data != null} selected={selectedFileIds} setSelected={setSelectedFileIds} refreshFiles={filesRecord.refresh} transfers={transfers} onArtifactsChanged={refreshArtifacts} composerActions={composerActions} openFiles={openFiles} /></div>
+      {activeTab === 'troubleshooting' && contentRecord.data != null && renderGenerated('troubleshooting')}
+      {activeTab === 'report' && contentRecord.data != null && renderGenerated('report')}
 
       {activeTab === 'knowledge' && (
         <div>
@@ -664,7 +717,8 @@ function CaseDetail() {
 
           <div className="card">
             <h2 className="card-title">{t('caseDetail.knowledge.sourcesTitle')}</h2>
-            {sources.length === 0 ? <p>{t('caseDetail.knowledge.noSources')}</p> : sources.map((source) => (
+            <ReadStatus record={sourceRecord} label="知识来源" />
+            {sourceRecord.data == null ? null : sources.length === 0 ? <p>{t('caseDetail.knowledge.noSources')}</p> : sources.map((source) => (
               <div key={source.id} className="source-row">
                 <strong>{source.title}</strong>
                 <span className="meta-pill">{source.source_type}</span>
@@ -694,7 +748,11 @@ function CaseDetail() {
         </div>
       )}
 
-      {activeTab === 'modules' && renderModules()}
+      {activeTab === 'modules' && <>
+        <ReadStatus record={moduleRecord} label="仿真模块" />
+        <ReadStatus record={partsRecord} label="元件记录" />
+        {moduleRecord.data != null && renderModules()}
+      </>}
 
       {activeTab === 'agent' && (
         <div>
@@ -719,6 +777,7 @@ function CaseDetail() {
             </div>
           </form>
 
+          <ReadStatus record={taskRecord} label="历史任务" />
           {tasks.map((task) => (
             <article key={task.id} className="card">
               <div className="generated-card-title">
@@ -752,21 +811,27 @@ function CaseDetail() {
         </div>
       )}
 
-      {activeTab === 'attachments' && (
-        <div>
+      <div hidden={activeTab !== 'attachments'}>
           <div className="card">
             <h2 className="card-title">{t('caseDetail.attachmentsTab.uploadTitle')}</h2>
-            <input type="file" onChange={handleFileUpload} />
+            <FileUpload caseId={caseId} transfers={transfers} />
             <p className="muted">{t('caseDetail.attachmentsTab.formats')}</p>
           </div>
-          {attachments.map((attachment) => (
-            <div key={attachment.id} className="card attachment-row">
+          <ReadStatus record={filesRecord} label="实验资料" />
+          <BeamStudy key={caseId} caseId={caseId} files={attachments} refreshToken={artifactVersion}
+            onUseFit={fit=>{setActiveTab('plan');composerActions.current?.useFit(fit);}}/>
+          <ArchiveList key={'archive-'+archiveVisit.key} files={attachments} initialId={archiveVisit.fileId} label={t('caseDetail.archivedFiles')}>{attachment => (
+            <div key={attachment.id} id={'case-file-'+attachment.id} className="card attachment-row">
               <div>
-                <strong>{attachment.filename}</strong>
-                <p className="muted">{attachment.file_type || t('caseDetail.attachmentsTab.unknownType')} · {new Date(attachment.uploaded_at).toLocaleString()}</p>
+                <strong>{attachment.relative_path || attachment.filename}</strong>
+                <p className="muted">#{attachment.id} · {fileModeLabels[attachment.read_mode] || attachment.file_type} · {new Date(attachment.uploaded_at).toLocaleString()}</p>
               </div>
               <div className="action-row">
-                {isImageAttachment(attachment) && (
+                <button className="btn btn-secondary" aria-expanded={previewId === attachment.id} onClick={() => setPreviewId(previewId === attachment.id ? null : attachment.id)}>{previewId === attachment.id ? '收起' : '查看原件信息'}</button>
+                <button type="button" className="btn btn-secondary" onClick={()=>{
+                  setActiveTab('plan');composerActions.current?.useOriginal(attachment);
+                }}>用整份原件计算</button>
+                {attachment.read_mode === 'image' && (
                   <button
                     className="btn btn-primary"
                     disabled={analyzingAttachment === attachment.id}
@@ -776,24 +841,26 @@ function CaseDetail() {
                   </button>
                 )}
                 <a href={`${API_BASE_URL}/api/attachments/${attachment.id}`} className="btn btn-secondary" target="_blank" rel="noreferrer">{t('common.download')}</a>
-                <button className="btn btn-danger" onClick={async () => {
-                  // Deleting also removes the file and its knowledge index —
-                  // the same confirm-first rule as every other delete here.
-                  if (!window.confirm(t('caseDetail.attachmentsTab.deleteConfirm'))) return;
-                  try {
-                    await casesApi.deleteAttachment(attachment.id);
-                    await loadData();
-                  } catch (err) {
-                    setActionError(t('caseDetail.attachmentsTab.deleteFailed') + err.message);
-                  }
-                }}>{t('common.delete')}</button>
+                <RemoveOriginal file={attachment} onDeleted={id => {
+                  localReceipts.current.delete(id);
+                  setSelectedFileIds(previous => previous.filter(fileId => fileId !== id));
+                  setAttachments(previous => previous.filter(file => file.id !== id));
+                  filesRecord.refresh();
+                }} />
               </div>
+              {attachment.index_note && <p className="field-note">{attachment.index_note}</p>}
+              {previewId === attachment.id && <><FilePreview key={attachment.id+'-'+previewRequest} file={attachment} caseId={caseId} onQuote={quoteFile} selections={fileSelections}
+                onUseSelection={source=>{setActiveTab('plan');composerActions.current?.useMeasurement(source);}}/>
+                <button type="button" className="btn btn-secondary" onClick={()=>quoteFile('关于这份原件：\n',attachment.id)}>{t('caseDetail.quoteOriginal')}</button>
+                <StudyUsage caseId={caseId} fileId={attachment.id} onOpen={(...args)=>{setActiveTab('plan');composerActions.current?.openStudy(...args);}}/></>}
             </div>
-          ))}
+          )}</ArchiveList>
         </div>
-      )}
     </div>
   );
 }
 
-export default CaseDetail;
+export default function CaseDetailRoute() {
+  const { id } = useParams();
+  return <CaseDetail key={id} />;
+}

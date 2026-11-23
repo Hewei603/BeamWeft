@@ -81,6 +81,7 @@ class AnthropicProvider(AIProvider):
         settings = get_settings()
         self.api_key = api_key or settings.anthropic_api_key
         self.model = model or settings.anthropic_model
+        self.agent_profile = {"provider": "anthropic", "model": self.model}
         self.max_tokens = max_tokens or settings.anthropic_max_tokens
         self.temperature = settings.anthropic_temperature if temperature is None else temperature
 
@@ -344,7 +345,7 @@ Return JSON with this shape:
     @staticmethod
     def _system_prompt(extra: str = "") -> str:
         base = (
-            "You are LaserClaw's laser experiment assistant. "
+            "You are BeamWeft's laser experiment assistant. "
             "Generate practical, safety-conscious advisory content for laser experiment workflows. "
             "Write every human-readable value in the SAME language as the case "
             "title/description/goal (Chinese case -> Chinese output). JSON keys stay in English. "

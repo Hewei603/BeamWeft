@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useLanguage } from '../LanguageContext';
+import { productName } from '../brand';
 
 /** Typed, human-readable renderers for physics/measurement module results.
  *  Falls back to nothing when the result shape is missing — the caller keeps
@@ -58,116 +59,138 @@ function PowerCurveChart({ fit, units, data }) {
   );
 }
 
-/** Cavity layout: element positions to scale along z, beam envelope exaggerated.
- *
- *  Every number here is computed by the backend kernel (`beam_envelope` +
- *  `element_placement`); this only maps mm to pixels. Nothing Gaussian is
- *  recomputed in the browser — that is the whole point of having a kernel.
- *
- *  The vertical axis cannot be to scale: a 0.25 mm beam in an 85 mm cavity would
- *  be a hairline. It is exaggerated by a factor that is printed on the drawing,
- *  because an unlabelled distortion is just a wrong picture.
- */
+// The kernel supplies both coordinates in mm. The two display axes have
+// independent scales, so an optical radius stays readable in a long cavity.
 export function CavityLayoutDiagram({ placement, envelope }) {
   const { t, te } = useLanguage();
+  const host = useRef(null);
+  const [width, setWidth] = useState(560);
   const points = envelope?.points || [];
-  if (!placement?.length || points.length < 2) return null;
+  const zEnd = points.at(-1)?.z_mm;
+  const maxRadius = points.reduce((max, point) => Math.max(max, point.w_mm), 0);
+  const drawable = Boolean(placement?.length && points.length >= 2 && zEnd > 0 && maxRadius > 0);
 
-  const W = 460; const H = 150;
-  const PAD_X = 30; const AXIS_Y = 78; const HALF = 44;
+  useLayoutEffect(() => {
+    if (!drawable) return;
+    const element = host.current;
+    const measure = () => {
+      const next = Math.round(element.getBoundingClientRect().width);
+      if (next > 0) setWidth(next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [drawable]);
+  if (!drawable) return null;
 
-  const zEnd = placement[placement.length - 1]?.position_mm || points[points.length - 1].z_mm;
-  if (!zEnd) return null;
-
-  const maxW = Math.max(...points.map((p) => p.w_mm));
-  // Round the exaggeration to something a person can hold in their head.
-  const rawScale = HALF / maxW;
-  const magnification = Math.max(1, Math.round(rawScale / (zEnd / (W - 2 * PAD_X))));
-
-  const x = (mm) => PAD_X + (mm / zEnd) * (W - 2 * PAD_X);
-  const halfHeight = (w) => (w / maxW) * HALF;
-
-  const upper = points.map((p) => `${x(p.z_mm).toFixed(2)},${(AXIS_Y - halfHeight(p.w_mm)).toFixed(2)}`);
-  const lower = [...points].reverse().map(
-    (p) => `${x(p.z_mm).toFixed(2)},${(AXIS_Y + halfHeight(p.w_mm)).toFixed(2)}`,
-  );
-  const beamPath = `M${upper.join(' L')} L${lower.join(' L')} Z`;
-
-  const mirrors = placement.filter((p) => /Mirror/i.test(p.element));
-  const crystalFaces = placement.filter((p) => /Crystal/i.test(p.element));
-  const crystal = crystalFaces.length === 2
-    ? { from: crystalFaces[0].position_mm, to: crystalFaces[1].position_mm }
-    : null;
-
+  const left = 57;
+  const right = width - 15;
+  const middle = 97;
+  const half = 43;
+  const tickStep = 0.5 * 10 ** Math.floor(Math.log10(maxRadius));
+  const radiusLimit = Number((Math.ceil(maxRadius / tickStep) * tickStep).toPrecision(8));
+  const x = (z) => left + z / zEnd * (right - left);
+  const dy = (w) => w / radiusLimit * half;
+  const upper = points.map((p) => `${x(p.z_mm).toFixed(2)},${(middle - dy(p.w_mm)).toFixed(2)}`);
+  const lower = [...points].reverse().map((p) => `${x(p.z_mm).toFixed(2)},${(middle + dy(p.w_mm)).toFixed(2)}`);
+  const outline = `M${upper.join(' L')} L${lower.join(' L')} Z`;
+  const mirrors = placement.filter((p) => /mirror/i.test(p.element));
+  const faces = placement.filter((p) => /crystal/i.test(p.element));
+  const waist = envelope.waist;
+  const tickLabel = (value) => Number(value.toPrecision(8)).toString();
+  const zTicks = width >= 460 ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.5, 1];
   return (
-    <div>
-      <svg className="cavity-diagram" viewBox={`0 0 ${W} ${H}`} role="img"
-        aria-label={t('caseDetail.physics.layoutTitle')}>
-        <line className="axis" x1={PAD_X} y1={AXIS_Y} x2={W - PAD_X} y2={AXIS_Y} strokeDasharray="3 3" />
-
-        {crystal && (
-          <g>
-            <rect className="crystal" x={x(crystal.from)} y={AXIS_Y - HALF - 6}
-              width={Math.max(x(crystal.to) - x(crystal.from), 1.5)} height={(HALF + 6) * 2} />
-            <text className="chart-note" x={(x(crystal.from) + x(crystal.to)) / 2} y={AXIS_Y - HALF - 12}
-              textAnchor="middle">{t('caseDetail.physics.crystalLabel')}</text>
-          </g>
-        )}
-
-        <path className="beam" d={beamPath} />
-
-        {envelope.waist && (
-          <g>
-            <line className="waist-mark" x1={x(envelope.waist.z_mm)} y1={AXIS_Y - HALF - 4}
-              x2={x(envelope.waist.z_mm)} y2={AXIS_Y + HALF + 4} />
-            <text className="chart-note" x={x(envelope.waist.z_mm)} y={AXIS_Y + HALF + 18}
-              textAnchor="middle">w₀={envelope.waist.w0_mm} mm</text>
-          </g>
-        )}
-
-        {mirrors.map((m, i) => {
-          const mx = x(m.position_mm);
-          const bulge = i === 0 ? 9 : -9;   // concave faces point into the cavity
-          return (
-            <g key={m.element}>
-              <path className="mirror"
-                d={`M${mx},${AXIS_Y - HALF - 6} Q${mx + bulge},${AXIS_Y} ${mx},${AXIS_Y + HALF + 6}`} />
-              <text className="chart-note" x={mx} y={AXIS_Y - HALF - 12}
-                textAnchor={i === 0 ? 'start' : 'end'}>{te(m.element)}</text>
-              <text className="chart-note" x={mx} y={H - 8}
-                textAnchor={i === 0 ? 'start' : 'end'}>{m.position_mm} mm</text>
-            </g>
-          );
-        })}
-
-        {crystalFaces.map((f) => (
-          <text key={f.element} className="chart-note" x={x(f.position_mm)} y={H - 8}
-            textAnchor="middle">{f.position_mm}</text>
-        ))}
-      </svg>
-      <p className="muted diagram-caption">
-        {t('caseDetail.physics.layoutScale').replace('{n}', magnification)}
-        {envelope.note ? ` ${envelope.note}` : ''}
-      </p>
-    </div>
+    <figure className="cavity-figure">
+      <h4>{t('caseDetail.physics.envelopeTitle')}</h4>
+      <div className="cavity-plot">
+        <div ref={host}>
+          <svg className="cavity-diagram" viewBox={`0 0 ${width} 214`} role="img"
+            aria-label={t('caseDetail.physics.envelopeTitle')}>
+            <text className="chart-note" x="4" y="15">{t('caseDetail.physics.transverseAxis')}</text>
+            {[-1, 0, 1].map((sign) => (
+              <g key={sign}>
+                <line className={sign ? 'guide' : 'axis'} x1={left} x2={right}
+                  y1={middle - sign * half} y2={middle - sign * half} />
+                <text className="chart-note tick" x={left - 8} y={middle - sign * half + 4}
+                  textAnchor="end">{tickLabel(sign * radiusLimit)}</text>
+              </g>
+            ))}
+            {faces.length === 2 && (
+              <rect className="crystal" x={x(faces[0].position_mm)} y={middle - half - 9}
+                width={Math.max(0, x(faces[1].position_mm) - x(faces[0].position_mm))} height={(half + 9) * 2}>
+                <title>{t('caseDetail.physics.crystalLabel')}</title>
+              </rect>
+            )}
+            <path className="beam" d={outline} />
+            {mirrors.map((mirror, i) => (
+              <g key={mirror.element}>
+                <line className="mirror" x1={x(mirror.position_mm)} x2={x(mirror.position_mm)}
+                  y1={middle - half - 8} y2={middle + half + 8} />
+                <text className="chart-note element-label" x={x(mirror.position_mm)} y={middle - half - 17}
+                  textAnchor={i === 0 ? 'start' : 'end'}>{te(mirror.element)}</text>
+              </g>
+            ))}
+            {waist && <g>
+              <line className="waist-mark" x1={x(waist.z_mm)} x2={x(waist.z_mm)}
+                y1={middle - half - 9} y2={middle + half + 9} />
+              <path className="waist-tip" d={`M${x(waist.z_mm)},${middle + half + 9} l-4,6 h8 Z`} />
+            </g>}
+            <line className="distance-axis" x1={left} x2={right} y1="164" y2="164" />
+            {zTicks.map((fraction) => (
+              <g key={fraction}>
+                <line className="distance-axis" x1={x(fraction * zEnd)} x2={x(fraction * zEnd)} y1="164" y2="169" />
+                <text className="chart-note tick" x={x(fraction * zEnd)} y="184"
+                  textAnchor={fraction === 1 ? 'end' : fraction === 0 ? 'start' : 'middle'}>
+                  {fraction === 1 ? zEnd : tickLabel(fraction * zEnd)}
+                </text>
+              </g>
+            ))}
+            <text className="chart-note" x={(left + right) / 2} y="207" textAnchor="middle">{t('caseDetail.physics.distanceAxis')}</text>
+          </svg>
+        </div>
+        {waist && <p className="cavity-legend"><i aria-hidden="true" />{t('caseDetail.physics.waistMark')}
+          <span>w₀ = {waist.w0_mm} mm</span><span>z = {waist.z_mm} mm</span></p>}
+        {faces.length === 2 && <p className="cavity-legend"><i className="crystal-key" aria-hidden="true" />
+          {t('caseDetail.physics.crystalLabel')}<span>{faces[0].position_mm} – {faces[1].position_mm} mm</span></p>}
+      </div>
+      <figcaption className="diagram-caption">{t('caseDetail.physics.layoutScale')}</figcaption>
+      {!waist && <p className="diagram-caption">{t(envelope.waist_location === 'outside'
+        ? 'caseDetail.physics.outsideWaist' : 'caseDetail.physics.unlocatedWaist')}</p>}
+    </figure>
   );
 }
 
-/** Element positions as a drawing plus the exact table, always from one source. */
-export function PlacementBlock({ placement, envelope }) {
+// All cavity result entry points use the same chart, quantities and positions.
+export function PlacementBlock({ placement, envelope, readings = [], thermal = [] }) {
   const { t, te } = useLanguage();
-  if (!placement?.length) return null;
+  const rows = readings.filter(([, value]) => value != null);
+  const hasPlot = Boolean(placement?.length && envelope?.points?.length >= 2);
+  if (!placement?.length && !rows.length && thermal[1] == null) return null;
+  const hasSlab = placement?.filter((p) => /crystal/i.test(p.element)).length === 2;
+  const positions = hasPlot ? placement.filter((p) =>
+    !/mirror/i.test(p.element) && !(hasSlab && /crystal/i.test(p.element))) : placement;
   return (
-    <div>
-      <h3>{t('caseDetail.physics.placement')}</h3>
-      <CavityLayoutDiagram placement={placement} envelope={envelope} />
-      <table className="mini-table">
-        <tbody>
-          {placement.map((p) => (
-            <tr key={p.element}><td>{te(p.element)}</td><td className="num">{p.position_mm} mm</td></tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="cavity-report">
+      <div className={hasPlot ? 'cavity-composition with-plot' : 'cavity-composition'}>
+        {hasPlot && <div className="cavity-drawing">
+          <CavityLayoutDiagram placement={placement} envelope={envelope} />
+        </div>}
+        {(rows.length > 0 || thermal[1] != null) && <div className="cavity-quantities">
+          <h4>{t('caseDetail.physics.readingsTitle')}</h4>
+          <dl className="cavity-readings">{rows.map(([label, value, unit]) => (
+            <div key={label}><dt>{label}</dt><dd>{value}{unit && <small> {unit}</small>}</dd></div>
+          ))}</dl>
+          {thermal[1] != null && <dl className="cavity-thermal">
+            <dt>{thermal[0]}</dt><dd>{thermal[1]}</dd>
+            <dd className="cavity-thermal-method">{t('caseDetail.physics.thermalMethod')}</dd>
+          </dl>}
+        </div>}
+      </div>
+      {positions?.length > 0 && <div className="cavity-positions">
+        <strong>{t('caseDetail.physics.placement')}</strong>
+        <dl>{positions.map((p) => <div key={p.element}><dt>{te(p.element)}</dt><dd>{p.position_mm} mm</dd></div>)}</dl>
+      </div>}
     </div>
   );
 }
@@ -226,52 +249,53 @@ export function PowerCurveResult({ result, showComparison = true }) {
   );
 }
 
+function thermalMarginChip(record, t) {
+  const power = record.thermal_lens_tolerance_dioptre;
+  const kind = record.thermal_lens_limit_kind || 'sampled';
+  const label = t('caseDetail.physics.thermalLimit.' + kind);
+  if (power == null) return [label, null];
+  const value = Number(power.toPrecision(7)) + ' D';
+  const focal = record.thermal_lens_tolerance_min_f_mm;
+  return [label, kind === 'critical' && focal ? `≈ ${value} · f ≈ ${Number(focal.toPrecision(7))} mm` : value];
+}
+
 export function CavityDesignResult({ result }) {
   const { t } = useLanguage();
   const rec = result.recommended || result.analysis;
-  // A fixed-length analysis of an UNSTABLE geometry must never read like a
-  // recommendation — the student would go build a cavity that cannot lase.
+  // An unstable cold cavity cannot supply a confined Gaussian beam envelope.
   const unstable = rec && rec.stable === false;
+  const k = (key) => t('caseDetail.physics.' + key);
   return (
-    <div className="generated-section">
+    <div className="generated-section cavity-result">
       {unstable && <div className="error">{t('caseDetail.modulesTab.unstableWarn')}</div>}
-      {result.summary && <p className="result-summary">{result.summary}</p>}
+      {rec && <header className="cavity-result-header">
+        <h3>{t(result.recommended ? 'caseDetail.modulesTab.recommended' : 'caseDetail.modulesTab.fixedGeometry')}</h3>
+        {rec.stable === true && <span className="cavity-stable">{k('stableCold')}</span>}
+      </header>}
       {result.scan?.stable_windows_mm && (
         <StatChips items={[[t('caseDetail.modulesTab.stableWindows'),
           result.scan.stable_windows_mm.length
             ? result.scan.stable_windows_mm.map(([a, b]) => `${a} – ${b} mm`).join('；')
             : '—']]} />
       )}
-      {rec && !unstable && (
-        <div>
-          <h3>{t('caseDetail.modulesTab.recommended')}</h3>
-          <StatChips items={[
-            ['L (mm)', rec.length_mm],
-            ['w0 (mm)', rec.waist_w0_mm],
-            ['w@M1 (mm)', rec.w_on_mirror1_mm],
-            ['w@M2 (mm)', rec.w_on_mirror2_mm],
-            ['w@crystal (mm)', rec.w_in_crystal_mm],
-            [t('caseDetail.modulesTab.thermalTol'),
-              rec.thermal_lens_tolerance_dioptre != null ? `${rec.thermal_lens_tolerance_dioptre} D` : null],
-          ]} />
-          {rec.criterion && (
-            <p className="muted">{t('caseDetail.modulesTab.criterion')}: {rec.criterion}</p>
-          )}
-        </div>
-      )}
-      {rec && unstable && (
-        <StatChips items={[
-          ['L (mm)', rec.length_mm],
-          ['m', rec.stability_m],
-        ]} />
-      )}
-      {!unstable && (
-        <PlacementBlock placement={result.placement} envelope={result.beam_envelope} />
-      )}
-      {(result.assumptions || []).length > 0 && (
-        <p className="muted">{t('caseDetail.modulesTab.assumptions')}: {result.assumptions.join('；')}</p>
-      )}
-      {result.disclaimer && <div className="disclaimer">{result.disclaimer}</div>}
+      {rec && <PlacementBlock placement={unstable ? null : result.placement} envelope={result.beam_envelope}
+        readings={[
+          [k('cavityLength'), rec.length_mm, 'mm'],
+          [k('wavelength'), result.wavelength_nm, 'nm'],
+          [k('stabilityTrace'), rec.stability_m],
+          [k('waistRadius'), !unstable ? rec.waist_w0_mm : null, 'mm'],
+          [k('mirror1Radius'), !unstable ? rec.w_on_mirror1_mm : null, 'mm'],
+          [k('mirror2Radius'), !unstable ? rec.w_on_mirror2_mm : null, 'mm'],
+          [k('crystalRadius'), !unstable ? rec.w_in_crystal_mm : null, 'mm'],
+        ]} thermal={thermalMarginChip(rec, t)} />}
+      {rec?.criterion && <p className="cavity-model-note"><strong>{t('caseDetail.modulesTab.criterion')}</strong> {rec.criterion}</p>}
+      {Boolean(result.assumptions?.length || result.disclaimer) && <div className="cavity-model-notes">
+        {result.assumptions?.length > 0 && <p><strong>{t('caseDetail.modulesTab.assumptions')}</strong> {result.assumptions.join('；')}</p>}
+        {result.disclaimer && <p>{result.disclaimer}</p>}
+      </div>}
+      {rec && result.summary ? <details className="cavity-original-summary"><summary>{k('calculationSummary')}</summary>
+        <p>{result.summary}</p>{result.beam_envelope?.note && <p>{result.beam_envelope.note}</p>}
+      </details> : result.summary && <p className="result-summary">{result.summary}</p>}
     </div>
   );
 }
@@ -312,17 +336,27 @@ export function CoatingTmmResult({ result }) {
   const summary = lang === 'zh' && sb?.edges_nm
     ? `原型阻带约 ${Math.round(sb.edges_nm[0])} – ${Math.round(sb.edges_nm[1])} nm（中心 ${sb.center_nm} nm）`
     : result.summary;
+  const spectral = ['exact_stack','vendor_curve'].includes(result.mode_used);
+  const quantities = ['R','T','A'].filter(key=>(result.query_results || []).some(row=>row[key]!=null));
   return (
     <div className="generated-section">
       {summary && <p className="result-summary">{summary}</p>}
-      <div className="stat-row">
+      {(result.warnings || []).map(note=><p className="disclaimer" key={note}>{note}</p>)}
+      {spectral ? <table className="data-table">
+        <thead><tr><th>{lang==='zh'?'波长 / nm':'Wavelength / nm'}</th>
+          {quantities.map(key=><th key={key}>{key} / %</th>)}<th>{lang==='zh'?'适用范围':'Validity'}</th></tr></thead>
+        <tbody>{(result.query_results || []).map((row,i)=><tr key={i}><td>{row.wavelength_nm}</td>
+          {quantities.map(key=><td key={key} className="num">{row[key]==null?'—':Number((row[key]*100).toFixed(5))}</td>)}
+          <td>{row.reason || (row.in_measured_range===false ? (lang==='zh'?'超出测量范围':'Outside measured range') :
+            row.is_representative_only ? (lang==='zh'?'代表性模型':'Representative model') : '—')}</td></tr>)}</tbody>
+      </table> : <div className="stat-row">
         {(result.query_results || []).map((q) => (
           <div key={q.wavelength_nm} className={`stat-chip band-${q.band_position}`}>
             <span className="stat-label">{q.wavelength_nm} nm</span>
             <span className="stat-value">{te(q.band_position)}{q.margin_to_edge_nm != null ? ` (${q.margin_to_edge_nm}nm)` : ''}</span>
           </div>
         ))}
-      </div>
+      </div>}
       {result.stopband && (
         <StatChips items={[
           [t('caseDetail.modulesTab.stopbandLabel'), `${result.stopband.edges_nm?.[0]} – ${result.stopband.edges_nm?.[1]}`],
@@ -379,7 +413,7 @@ export function LiteratureSearchResult({ result }) {
       { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'laserclaw_references.bib';
+    link.download = `${productName.toLowerCase()}_references.bib`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -494,20 +528,17 @@ export function PhysicsFactsBlock({ physics }) {
       {search && (
         <div>
           {search.note && <p className="muted">{search.note}</p>}
-          {rec && (
-            <StatChips items={[
+          {rec && <PlacementBlock placement={rec.element_placement} envelope={rec.beam_envelope}
+            readings={[
               ['R1', rec.R1], ['R2', rec.R2],
-              ['L (mm)', rec.length_mm],
-              ['w0 (mm)', rec.waist_w0_mm],
-              ['w@crystal (mm)', rec.spot_in_crystal_mm],
-              [t('caseDetail.physics.wavelength'), search.wavelength_nm != null ? `${search.wavelength_nm} nm` : null],
-              [t('caseDetail.physics.thermalTol'),
-                rec.thermal_lens_tolerance_dioptre != null
-                  ? `${rec.thermal_lens_tolerance_dioptre} D${rec.thermal_lens_tolerance_min_f_mm ? ` (f≥${rec.thermal_lens_tolerance_min_f_mm}mm)` : ''}`
-                  : null],
-            ]} />
-          )}
-          <PlacementBlock placement={rec?.element_placement} envelope={rec?.beam_envelope} />
+              [t('caseDetail.physics.cavityLength'), rec.length_mm, 'mm'],
+              [t('caseDetail.physics.wavelength'), search.wavelength_nm, 'nm'],
+              [t('caseDetail.physics.stabilityTrace'), rec.stability_m],
+              [t('caseDetail.physics.waistRadius'), rec.waist_w0_mm, 'mm'],
+              [t('caseDetail.physics.mirror1Radius'), rec.spot_on_mirror1_mm, 'mm'],
+              [t('caseDetail.physics.mirror2Radius'), rec.spot_on_mirror2_mm, 'mm'],
+              [t('caseDetail.physics.crystalRadius'), rec.spot_in_crystal_mm, 'mm'],
+            ]} thermal={thermalMarginChip(rec, t)} />}
           {(search.alternatives || []).length > 0 && (
             <details>
               <summary className="muted">{t('caseDetail.physics.alternatives')} ({search.alternatives.length})</summary>
@@ -540,14 +571,15 @@ export function PhysicsFactsBlock({ physics }) {
       {design && (
         <div>
           {design.summary && <p className="result-summary">{design.summary}</p>}
-          <StatChips items={[
-            ['L (mm)', design.recommended_length_mm],
-            ['w0 (mm)', design.waist_w0_mm],
-            ['w@M1 (mm)', design.spot_on_mirror1_mm],
-            ['w@M2 (mm)', design.spot_on_mirror2_mm],
-            ['w@crystal (mm)', design.spot_in_crystal_mm],
-          ]} />
-          <PlacementBlock placement={design.element_placement} envelope={design.beam_envelope} />
+          <PlacementBlock placement={design.element_placement} envelope={design.beam_envelope}
+            readings={[
+              [t('caseDetail.physics.cavityLength'), design.recommended_length_mm, 'mm'],
+              [t('caseDetail.physics.stabilityTrace'), design.stability_m],
+              [t('caseDetail.physics.waistRadius'), design.waist_w0_mm, 'mm'],
+              [t('caseDetail.physics.mirror1Radius'), design.spot_on_mirror1_mm, 'mm'],
+              [t('caseDetail.physics.mirror2Radius'), design.spot_on_mirror2_mm, 'mm'],
+              [t('caseDetail.physics.crystalRadius'), design.spot_in_crystal_mm, 'mm'],
+            ]} thermal={thermalMarginChip(design, t)} />
         </div>
       )}
 

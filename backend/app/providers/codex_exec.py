@@ -1,15 +1,17 @@
-"""Codex exec transport for LaserClaw's existing task and tool contracts.
+"""Codex exec transport for BeamWeft's existing task and tool contracts.
 
-Codex only selects structured actions here. LaserClaw still validates and runs
+Codex only selects structured actions here. BeamWeft still validates and runs
 its own tools, records their real results, and owns all case/inventory writes.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+from collections import Counter, defaultdict
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -35,6 +37,45 @@ _IMAGE_EXTENSIONS = {
 }
 
 
+def _tool_directory_text(tools: list[dict]) -> str:
+    """Print repeated local JSON Schema definitions once in the text transport."""
+    counts = defaultdict(Counter)
+    tool_signatures = []
+    for tool in tools:
+        signatures = {}
+        for name, body in tool.get("parameters", {}).get("$defs", {}).items():
+            # JSON booleans and numbers can compare equal in Python but describe different inputs.
+            signature = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            signatures[name] = signature
+            counts[name][signature] += 1
+        tool_signatures.append(signatures)
+    reusable = {}
+    for name, variants in counts.items():
+        signature, occurrences = variants.most_common(1)[0]
+        if occurrences > 1:
+            reusable[name] = signature
+    if not reusable:
+        return json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
+
+    entries, shared = [], {}
+    for tool, signatures in zip(tools, tool_signatures):
+        parameters = tool.get("parameters", {})
+        definitions = parameters.get("$defs", {})
+        imports = [name for name, signature in signatures.items() if reusable.get(name) == signature]
+        if imports:
+            local = definitions.copy()
+            for name in imports:
+                shared[name] = local.pop(name)
+            entries.append({**tool, "parameters": {**parameters, "$defs": local}, "import_defs": imports})
+        else:
+            entries.append(tool)
+    return json.dumps({
+        "format": "For each tool, copy the named import_defs from shared_defs into its own parameters.$defs. "
+                  "Resolve all local references in that tool's parameters, including references inside imports.",
+        "tools": entries, "shared_defs": shared,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
 def resolve_command(configured_path: str = "") -> list[str]:
     """Prefer native executables; run npm shims through Node without a shell."""
     name = configured_path.strip() or "codex"
@@ -42,6 +83,20 @@ def resolve_command(configured_path: str = "") -> list[str]:
         candidate = shutil.which(name)
         if candidate is None and Path(name).is_file():
             candidate = str(Path(name).resolve())
+        if candidate is None:
+            # Desktop updates replace versioned bin/<build>/codex.exe folders.
+            # Recover only within the same official installation, retaining
+            # explicit custom executable paths as strict user choices.
+            previous = Path(name)
+            official = (previous.name.lower() == "codex.exe"
+                        and previous.parent.parent.name.lower() == "bin"
+                        and previous.parent.parent.parent.name.lower() == "codex"
+                        and previous.parent.parent.parent.parent.name.lower() == "openai")
+            replacement = shutil.which("codex.exe") if official else None
+            if replacement and Path(replacement).is_file():
+                current = Path(replacement)
+                if current.parent.parent.resolve() == previous.parent.parent.resolve():
+                    candidate = replacement
     else:
         candidate = (shutil.which("codex.exe") if os.name == "nt" else None) or shutil.which(name)
     if not candidate:
@@ -92,6 +147,8 @@ def codex_status(*, refresh: bool = False, path: str | None = None) -> dict:
         if auth.returncode == 0 and "chatgpt" in text:
             status.update(logged_in=True, ready=True, auth_method="chatgpt",
                           message="已使用 ChatGPT 登录；调用计入该账户的 Codex 订阅额度。")
+            if configured and not Path(configured).is_file() and Path(command[-1]).is_file():
+                status["message"] += " 已自动定位应用更新后的 Codex 可执行文件。"
         elif auth.returncode == 0 and ("api key" in text or "api_key" in text):
             status.update(logged_in=True, auth_method="api_key",
                           message="CLI 当前使用 API Key 登录。请在后端电脑执行 codex login，改用 ChatGPT 登录后再使用订阅模式。")
@@ -126,20 +183,43 @@ def _stop_process(process: subprocess.Popen) -> None:
 class CodexExecError(RuntimeError):
     """Actionable runtime failure, suitable for the task's persisted trace."""
 
+    def __init__(self, reason, *, category="model_response", basis="CLI 未提供可采纳的结构化答复。",
+                 action="核对 CLI 与模型配置，必要时测试连接，再继续原任务。"):
+        self.category, self.reason, self.basis, self.action = category, reason, basis, action
+        super().__init__(f"{reason} {basis} {action}")
 
-def _failure_message(text: str) -> str:
+
+def _failure(text: str, returncode: int, *, completed: bool, reported_error: bool) -> CodexExecError:
     lower = text.lower()
     if any(part in lower for part in ("usage limit", "rate limit", "quota", "usage_limit", "limit reached")):
-        return "Codex 订阅额度已用尽或受到限流。请查看 Codex 账户额度，额度恢复后继续；已完成的工具结果保留。"
-    if any(part in lower for part in ("unauthorized", "authentication", "not logged", "401", "refresh token")):
-        return "Codex 登录已失效。请在后端电脑执行 codex login，重新使用 ChatGPT 登录。"
-    if any(part in lower for part in ("model", "unsupported model")):
-        return "Codex 执行失败，可能是所选模型不可用或模型配置不受支持。请检查模型 ID、账户权限及 CLI 版本。"
-    return "Codex exec 执行失败。请检查 CLI 登录、网络和版本，然后重试；已完成的工具结果保留。"
+        category, message, action = "limit_unspecified", "Codex 订阅额度或请求频率受限。", "核对订阅用量和恢复时间，待限制解除后继续。"
+    elif any(part in lower for part in ("unauthorized", "authentication failed", "authentication required",
+                                        "authentication_error", "not logged", "http 401", "refresh token")):
+        category, message, action = "authentication", "Codex 登录认证失败。", "请在后端电脑核对 codex login 状态，重新使用 ChatGPT 登录。"
+    elif any(part in lower for part in ("connection reset", "connection refused", "error sending request",
+                                        "stream disconnected", "failed to connect", "network is unreachable")):
+        category, message, action = "connection", "Codex 与服务的连接中断。", "在 Agent 设置中测试连接以核对当前可用性，再决定是否继续原任务。"
+    elif any(part in lower for part in ("unsupported model", "model_not_found", "model not found", "unknown model",
+                                        "model is not supported", "model is unavailable", "model is not available")):
+        category, message, action = "model_rejected", "Codex 无法使用指定模型。", "请核对模型 ID、账户权限和 CLI 版本。"
+    else:
+        category, message, action = "model_response", "Codex exec 执行失败。", "请在 Agent 设置中测试连接，以核对 CLI 当前能否返回有效答复。"
+    # Diagnostics can contain the prompt, local file paths or account secrets.
+    # These facts come only from the child process and recognized event types.
+    facts = [f"CLI 退出码 {returncode}"]
+    if reported_error:
+        facts.append("收到错误事件")
+    facts.append("收到完成事件" if completed else "未收到完成事件")
+    basis = "，".join(facts)+"。"
+    if reported_error and completed:
+        basis += "同一轮包含错误和完成事件，这组信号未提供可采纳的模型答复。"
+    if category in {"connection", "model_response"}:
+        basis += "这些信号不足以确定故障的具体位置。"
+    return CodexExecError(message, category=category, basis=basis, action=action)
 
 
 class CodexExecProvider(OpenAIProvider):
-    """Reuse LaserClaw's established task prompts, replacing every API transport."""
+    """Reuse BeamWeft's established task prompts, replacing every API transport."""
 
     def __init__(self, *, model=None, path=None, timeout=None, reasoning_effort=None):
         settings = get_settings()
@@ -148,11 +228,13 @@ class CodexExecProvider(OpenAIProvider):
         self.command = resolve_command(self.configured_path)
         self.timeout = int(timeout or settings.codex_exec_timeout_seconds)
         self.reasoning_effort = reasoning_effort or settings.codex_exec_reasoning_effort
+        self.agent_profile = {"provider": "codex_exec", "model": self.model, "reasoning_effort": self.reasoning_effort}
 
     async def _complete(self, prompt: str, *, schema: dict | None = None, images: list[dict] | None = None) -> dict:
         runtime = await asyncio.to_thread(codex_status, path=self.configured_path)
         if not runtime["ready"]:
-            raise CodexExecError(runtime["message"])
+            raise CodexExecError(runtime["message"], category="authentication" if runtime.get("available") else "provider_response",
+                                 basis="启动前的 CLI 可用性或登录状态检查未通过。", action="在运行后端的电脑核对 CLI 的可用性和登录状态，再测试连接。")
         with tempfile.TemporaryDirectory(prefix="laserclaw-codex-") as directory:
             root = Path(directory)
             schema_path, answer_path = root / "schema.json", root / "answer.json"
@@ -187,11 +269,16 @@ class CodexExecProvider(OpenAIProvider):
                 )
             except subprocess.TimeoutExpired:
                 await asyncio.to_thread(_stop_process, process)
-                raise CodexExecError(f"Codex 本轮执行超过 {self.timeout} 秒。可在首页增加等待时间后继续；此前工具结果保留。") from None
+                raise CodexExecError(f"Codex 本轮执行超过 {self.timeout} 秒。", category="timeout",
+                                     basis="本轮已到配置的等待时限，未取得完整响应。",
+                                     action="核对后端与服务状态，必要时在 Agent 设置中调整等待时间，再继续原任务。") from None
             except asyncio.CancelledError:
                 await asyncio.to_thread(_stop_process, process)
                 raise
             events, usage, errors, completed = [], {}, [], False
+            fatal_error = False
+            reconnecting = False
+            recovered_message = None
             for line in stdout.decode("utf-8", errors="replace").splitlines():
                 try:
                     event = json.loads(line)
@@ -200,12 +287,25 @@ class CodexExecProvider(OpenAIProvider):
                 if not isinstance(event, dict):
                     continue
                 events.append(event)
-                if event.get("type") == "turn.completed":
+                kind = event.get("type")
+                if kind == "turn.completed":
                     completed, usage = True, event.get("usage") or {}
-                if event.get("type") in {"error", "turn.failed"}:
-                    errors.append(str(event.get("message") or event.get("error") or "Codex turn failed"))
-            if process.returncode != 0 or errors or not completed:
-                raise CodexExecError(_failure_message("\n".join(errors) + stderr.decode("utf-8", errors="replace")))
+                elif kind in {"error", "turn.failed"}:
+                    message = str(event.get("message") or event.get("error") or "Codex turn failed")
+                    errors.append(message)
+                    # codex exec emits its own reconnect progress as a top-level error.
+                    if kind == "error" and not completed and re.match(r"^Reconnecting\.\.\. \d+/\d+(?:\s|$)", message, re.I):
+                        reconnecting = True
+                        recovered_message = None
+                    else:
+                        fatal_error = True
+                elif reconnecting and not completed and kind == "item.completed":
+                    item = event.get("item") or {}
+                    if item.get("type") == "agent_message":
+                        recovered_message = item.get("text")
+            if process.returncode != 0 or fatal_error or not completed or (reconnecting and not isinstance(recovered_message, str)):
+                diagnostic = "\n".join(errors) if errors else stderr.decode("utf-8", errors="replace")
+                raise _failure(diagnostic, process.returncode, completed=completed, reported_error=bool(errors))
             # This adapter never delegates execution to Codex's shell or MCPs.
             if any(e.get("item", {}).get("type") in {"command_execution", "file_change", "mcp_tool_call"}
                    for e in events):
@@ -214,13 +314,17 @@ class CodexExecProvider(OpenAIProvider):
                 answer = json.loads(answer_path.read_text(encoding="utf-8"))
                 if not isinstance(answer, dict):
                     raise ValueError
+                if reconnecting:
+                    stream_answer = json.loads(recovered_message)
+                    if json.dumps(stream_answer, sort_keys=True) != json.dumps(answer, sort_keys=True):
+                        raise ValueError
             except (OSError, ValueError):
                 raise CodexExecError("Codex 未返回完整的结构化结果；请重试，本轮不会伪造工具结果。") from None
             return attach_usage_payload(answer, provider="codex_exec", model=self.model, usage=usage)
 
     async def _request_json(self, instructions: str, context, images: list[dict] | None = None) -> dict:
         prompt = (
-            "You are LaserClaw's model backend. Respond directly using the supplied context and images. "
+            "You are BeamWeft's model backend. Respond directly using the supplied context and images. "
             "Do not inspect the computer or execute commands. Do not use external tools. "
             "Return a JSON object with response_json containing the complete task result encoded as a JSON string. "
             "Do not invent measurements or computed physics. Match the user's language.\n\n"
@@ -257,7 +361,7 @@ class CodexExecProvider(OpenAIProvider):
 
     async def agent_turn(self, instructions, messages, tools):
         if not tools:
-            raise CodexExecError("本轮没有可用的 LaserClaw 工具。")
+            raise CodexExecError("本轮没有可用的 BeamWeft 工具。")
         schema = {
             "type": "object",
             "properties": {"calls": {"type": "array", "minItems": 1, "maxItems": 1, "items": {
@@ -280,12 +384,12 @@ class CodexExecProvider(OpenAIProvider):
             history.append(entry)
         prompt = (
             f"{instructions}\n\n"
-            "TRANSPORT CONTRACT: You select the next LaserClaw tool call, which the application will validate and run. "
+            "TRANSPORT CONTRACT: You select the next BeamWeft tool call, which the application will validate and run. "
             "You must NOT execute the tool yourself or invent a result. Do not inspect files, run shell commands, or "
             "use your own tools. Select exactly ONE available tool. Encode its complete arguments as a JSON string. "
             "The history contains real tool responses. Use them to decide the next action; call finish to deliver "
             "a completed, partial, or needs_input result. Attached images follow history order.\n\n"
-            f"Available tool definitions:\n{json.dumps(tools, ensure_ascii=False)}\n\n"
+            f"Available tool definitions:\n{_tool_directory_text(tools)}\n\n"
             f"Conversation and real tool results:\n{json.dumps(history, ensure_ascii=False)}"
         )
         response = await self._complete(prompt, schema=schema, images=pictures)
